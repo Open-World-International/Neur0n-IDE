@@ -1,6 +1,6 @@
 {
-  "name": "Neur0n",
-  "description": "Professional-grade IDE with collaborative AI, multi-language support, and precise execution capabilities for enterprise use.",
+  "name": "Neur0n-IDE",
+  "description": "Neur0n-IDE is a high-performance background mesh worker and IDE designed for autonomous code analysis, neural handshakes, and enterprise-grade cross-thread synchronization.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }
