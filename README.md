@@ -24,4 +24,7 @@ All communications are encrypted using AES-256 protocols (simulated in UI). Pers
 ## Metadata
 
 - **Name**: Neur0n-IDE
-- **Version**: 1.0.0-mesh
+- **Version**: Beta-Mesh
+- **Note**: Still under Testing, Any Error in The Neur0 Link will be soon Fixed
+
+Thanking You, OWI
