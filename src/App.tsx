@@ -44,8 +44,7 @@ import { cn } from "./lib/utils";
 import { GoogleGenAI } from "@google/genai";
 import { USER_MANUAL_MARKDOWN } from "./constants";
 import { auth, googleProvider, githubProvider, syncUserToFirestore } from "./lib/firebase";
-import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
-import type { User } from "firebase/auth";
+import { exportLogsToExcel, LogEntry } from "./lib/excelExport";
 
 // --- Types ---
 interface FileEntry {
@@ -53,6 +52,13 @@ interface FileEntry {
   name: string;
   content: string;
   language: string;
+}
+
+interface AppUser {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL: string | null;
 }
 
 // --- Components ---
@@ -89,41 +95,53 @@ export default function App() {
   const [aiChat, setAiChat] = useState<{ role: "user" | "ai"; message: string }[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
   const [chatInput, setChatInput] = useState("");
+  const [connectionLogs, setConnectionLogs] = useState<LogEntry[]>([]);
 
-  // Firebase Auth State
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  // Local Auth State (Firebase Disabled)
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [authLoading, setAuthLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setCurrentUser(user);
-      setAuthLoading(false);
-      if (user) {
-        syncUserToFirestore(user);
-      }
-    });
-    return () => unsubscribe();
+    // Simulated recovery of local session
+    const savedUser = localStorage.getItem('neur0n_user');
+    if (savedUser) {
+      setCurrentUser(JSON.parse(savedUser));
+    }
   }, []);
+
+  const addLog = (type: LogEntry['type'], message: string, details?: string) => {
+    const newLog: LogEntry = {
+      timestamp: new Date().toISOString(),
+      type,
+      message,
+      details
+    };
+    setConnectionLogs(prev => [newLog, ...prev]);
+    setConsoleOutput(prev => [...prev, `[${type}] ${message}`]);
+  };
 
   async function handleSocialLogin(provider: any) {
     try {
-      const result = await signInWithPopup(auth, provider);
-      setConsoleOutput(prev => [...prev, `[System] Welcome, ${result.user.displayName || 'Architect'}. Neural record synchronized.`]);
+      const mockUser: AppUser = {
+        uid: 'local_' + Math.random().toString(36).substr(2, 9),
+        email: 'architect@neur0n.local',
+        displayName: 'Neural Architect',
+        photoURL: null
+      };
+      setCurrentUser(mockUser);
+      localStorage.setItem('neur0n_user', JSON.stringify(mockUser));
+      addLog('SYSTEM', `Welcome, ${mockUser.displayName}. Local neural identity established.`);
       setIsAuthModalOpen(false);
     } catch (err) {
-      console.error(err);
-      setConsoleOutput(prev => [...prev, `[Error] Auth Failure: ${err instanceof Error ? err.message : 'Unknown error'}`]);
+      addLog('ERROR', `Handshake Failure: Local auth error.`);
     }
   }
 
   async function handleLogout() {
-    try {
-      await signOut(auth);
-      setConsoleOutput(prev => [...prev, "[System] Identity purged. Local session terminated."]);
-    } catch (err) {
-      console.error(err);
-    }
+    setCurrentUser(null);
+    localStorage.removeItem('neur0n_user');
+    addLog('SYSTEM', "Local session terminated. Secure link severed.");
   }
 
   // GitHub State
@@ -1484,17 +1502,28 @@ export default function App() {
                           AUTH
                         </button>
                       </div>
-                      <div className="flex items-center gap-2 px-3">
-                        {authError ? (
-                          <>
-                            <X size={12} className="text-red-500 animate-pulse" />
-                            <span className="text-[9px] text-red-500 font-black uppercase tracking-widest">Handshake Rejected: Invalid Signature</span>
-                          </>
-                        ) : (
-                          <>
-                            <ShieldCheck size={12} className="text-emerald-500" />
-                            <span className="text-[9px] text-zinc-600 font-bold uppercase tracking-tighter">AES-256 Encrypted Transfer Protocol active</span>
-                          </>
+                      <div className="flex items-center gap-2 px-3 justify-between">
+                        <div className="flex items-center gap-2">
+                          {authError ? (
+                            <>
+                              <X size={12} className="text-red-500 animate-pulse" />
+                              <span className="text-[9px] text-red-500 font-black uppercase tracking-widest">Handshake Rejected: Invalid Signature</span>
+                            </>
+                          ) : (
+                            <>
+                              <ShieldCheck size={12} className="text-emerald-500" />
+                              <span className="text-[9px] text-zinc-600 font-bold uppercase tracking-tighter">AES-256 Encrypted Transfer Protocol active</span>
+                            </>
+                          )}
+                        </div>
+                        {connectionLogs.length > 0 && (
+                          <button 
+                            onClick={() => exportLogsToExcel(connectionLogs)}
+                            className="text-[9px] font-black text-emerald-500 hover:text-emerald-400 flex items-center gap-1 transition-colors uppercase tracking-widest border border-emerald-500/20 px-2 py-0.5 rounded-md hover:bg-emerald-500/5"
+                          >
+                            <FileDown size={10} />
+                            Export XL
+                          </button>
                         )}
                       </div>
                     </div>
@@ -1580,32 +1609,29 @@ export default function App() {
                       }
 
                       if (!githubToken) {
-                        setConsoleOutput(prev => [...prev, "[Error] Neural Handshake failed: GITHUB_TOKEN_MISSING."]);
-                        setConsoleOutput(prev => [...prev, "[Neur0n] Please provide a valid Personal Access Token in the vault."]);
+                        addLog('ERROR', "Neural Handshake failed: GITHUB_TOKEN_MISSING.");
                         return;
                       }
 
                       setIsEstablishingLink(true);
-                      setConsoleOutput(prev => [...prev, "[Neur0n] Handshake initiated. Verifying token integrity..."]);
+                      addLog('INFO', "Handshake initiated. Verifying token integrity...");
                       
                       setTimeout(() => {
-                        // Real GitHub tokens usually start with ghp_ or github_pat_
                         const isTokenFormatValid = githubToken.startsWith('ghp_') || githubToken.startsWith('github_pat_');
 
                         if (!isTokenFormatValid) {
-                          setConsoleOutput(prev => [...prev, "[Error] Security Breach: Invalid Token Signature detected."]);
-                          setConsoleOutput(prev => [...prev, "[Neur0n] Link Aborted. Please use a valid GitHub Personal Access Token."]);
+                          addLog('ERROR', "Security Breach: Invalid Token Signature detected.");
                           setAuthError("INVALID_SIGNATURE");
                           setIsEstablishingLink(false);
                           return;
                         }
 
                         setAuthError(null);
-                        setConsoleOutput(prev => [...prev, "[Neur0n] Encryption verified via AES-256."]);
-                        setConsoleOutput(prev => [...prev, "[Neur0n] Searching for woven mesh connections in external targets..."]);
+                        addLog('INFO', "Encryption verified via AES-256.");
+                        addLog('INFO', "Searching for woven mesh connections in external targets...");
 
                         setTimeout(() => {
-                          setConsoleOutput(prev => [...prev, "[Neur0n] Mesh link established. Global Guardian is now monitoring external threads."]);
+                          addLog('SYSTEM', "Mesh link established. Global Guardian is now monitoring external threads.");
                           setLinkedAppInfo({
                             name: "NEUR0N-CORE-PRODUCTION",
                             repo: "Open-World-International/Neur0n-IDE",
