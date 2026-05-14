@@ -1,20 +1,6 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Neur0n is now complete!
+Establish Neur0n personally in your own domain. We do not have a private Neur0n Domain for Safety Purposes. Use Hostinger to Run these codes into a seperate domain, and do not share the Domain to anyone else, as a single domain can Handle a single Link only. This link once established, will automatically solve all your errors and even implement new and modern features into your app! but open all the Tabs and fill all the information before confirming the Link, and do not miss even a single code from the Neural Integrate Vault. Integrate the AI using your own API keys in the Lightning Button, to run the App.
 
-# Run and deploy your AI Studio app
+Inspired by Transformer by Google, always working for your app in the Background
 
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/cbe77657-de03-480e-8369-2fbdd6d6376d
-
-## Run Locally
-
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+Your Truthful OWI
