@@ -1,20 +1,27 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Neur0n-IDE
 
-# Run and deploy your AI Studio app
+Neur0n-IDE is a specialized background mesh worker and IDE designed for autonomous code analysis, neural handshakes, and enterprise-grade cross-thread synchronization.
 
-This contains everything you need to run your app locally.
+## 🚀 Features
 
-View your app in AI Studio: https://ai.studio/apps/cbe77657-de03-480e-8369-2fbdd6d6376d
+- **Neural Hub**: Integrated AI environment powered by Gemini for architectural reasoning.
+- **Mesh Authentication**: Multi-provider login (GMail/GitHub) synchronized via Firebase.
+- **Headless Handshake**: Secure token-based protocols for background worker environments (Docker, K8s, Lambda).
+- **Hardened Security**: Multi-tier Firestore rules enforcing zero-trust identity verification.
+- **Automatic Sync**: Real-time synchronization of neural identities and mesh access.
 
-## Run Locally
+## 🛠 Tech Stack
 
-**Prerequisites:**  Node.js
+- **Frontend**: React 18, Vite, Tailwind CSS, Motion/React.
+- **Backend/Storage**: Firebase (Auth & Firestore).
+- **AI**: Google Gemini Pro & Flash models.
+- **Security**: Attribute-Based Access Control (ABAC) security rules.
 
+## 🔒 Security
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+All communications are encrypted using AES-256 protocols (simulated in UI). Personal Access Tokens are handled via secure handshake protocols to ensure no-password interaction with Git targets.
+
+## 📜 Metadata
+
+- **Name**: Neur0n-IDE
+- **Version**: 1.0.0-mesh
