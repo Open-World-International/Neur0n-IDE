@@ -87,3 +87,25 @@
 .terminal-glow {
   box-shadow: 0 0 15px rgba(59, 130, 246, 0.1);
 }
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(168, 85, 247, 0.2);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(168, 85, 247, 0.4);
+}
+
+.animate-spin-slow {
+  animation: spin 3s linear infinite;
+}

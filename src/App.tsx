@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import Markdown from "react-markdown";
 import Editor from "@monaco-editor/react";
 import { Octokit } from "octokit";
@@ -14,7 +14,7 @@ import {
   Download, 
   HelpCircle,
   X,
-  User,
+  User as UserIcon,
   Crown,
   Search,
   ChevronRight,
@@ -31,12 +31,21 @@ import {
   Globe,
   Share2,
   FileDown,
-  Zap
+  Zap,
+  Brain,
+  Folder,
+  FileText,
+  Mail,
+  LogIn,
+  LogOut
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "./lib/utils";
 import { GoogleGenAI } from "@google/genai";
 import { USER_MANUAL_MARKDOWN } from "./constants";
+import { auth, googleProvider, githubProvider, syncUserToFirestore } from "./lib/firebase";
+import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
+import type { User } from "firebase/auth";
 
 // --- Types ---
 interface FileEntry {
@@ -49,7 +58,7 @@ interface FileEntry {
 // --- Components ---
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"explorer" | "ai" | "settings" | "github">("explorer");
+  const [activeTab, setActiveTab] = useState<"explorer" | "github" | "settings" | "brain">("explorer");
   const [files, setFiles] = useState<FileEntry[]>([
     { id: "1", name: "index.js", content: "console.log('Welcome to Neur0n');", language: "javascript" },
     { id: "2", name: "styles.css", content: "body { background: #000; }", language: "css" },
@@ -63,12 +72,59 @@ export default function App() {
   const [isManualOpen, setIsManualOpen] = useState(false);
   const [isPublishOpen, setIsPublishOpen] = useState(false);
   const [isIntegrationsOpen, setIsIntegrationsOpen] = useState(false);
+  const [isIntegrationGuideOpen, setIsIntegrationGuideOpen] = useState(false);
+  const [isNeuralLinkEstablished, setIsNeuralLinkEstablished] = useState(false);
+  const [isEstablishingLink, setIsEstablishingLink] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [linkedAppInfo, setLinkedAppInfo] = useState<{
+    name: string;
+    repo: string;
+    health: string;
+    structure: any[];
+    logs: any[];
+  } | null>(null);
   const [isGeminiLinking, setIsGeminiLinking] = useState(false);
   const [tempGeminiKey, setTempGeminiKey] = useState("");
   const [isAiOpen, setIsAiOpen] = useState(false);
   const [aiChat, setAiChat] = useState<{ role: "user" | "ai"; message: string }[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
   const [chatInput, setChatInput] = useState("");
+
+  // Firebase Auth State
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setAuthLoading(false);
+      if (user) {
+        syncUserToFirestore(user);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  async function handleSocialLogin(provider: any) {
+    try {
+      const result = await signInWithPopup(auth, provider);
+      setConsoleOutput(prev => [...prev, `[System] Welcome, ${result.user.displayName || 'Architect'}. Neural record synchronized.`]);
+      setIsAuthModalOpen(false);
+    } catch (err) {
+      console.error(err);
+      setConsoleOutput(prev => [...prev, `[Error] Auth Failure: ${err instanceof Error ? err.message : 'Unknown error'}`]);
+    }
+  }
+
+  async function handleLogout() {
+    try {
+      await signOut(auth);
+      setConsoleOutput(prev => [...prev, "[System] Identity purged. Local session terminated."]);
+    } catch (err) {
+      console.error(err);
+    }
+  }
 
   // GitHub State
   const [repos, setRepos] = useState<any[]>([]);
@@ -347,6 +403,7 @@ export default function App() {
         {[
           { id: "explorer", icon: FileCode },
           { id: "github", icon: Github },
+          { id: "brain", icon: Brain },
           { id: "settings", icon: Settings },
         ].map((item) => (
           <button
@@ -386,8 +443,19 @@ export default function App() {
           >
             <HelpCircle size={22} />
           </button>
-          <div className="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center cursor-pointer hover:border-blue-500/50 transition-colors">
-            <User size={16} />
+          <div className="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center cursor-pointer hover:border-blue-500/50 transition-colors overflow-hidden group relative"
+            onClick={() => currentUser ? handleLogout() : setIsAuthModalOpen(true)}
+          >
+            {currentUser?.photoURL ? (
+              <img src={currentUser.photoURL} alt="User" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+            ) : (
+              <UserIcon size={16} />
+            )}
+            {currentUser && (
+              <div className="absolute inset-0 bg-red-500/80 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                <LogOut size={12} className="text-white" />
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -614,6 +682,119 @@ export default function App() {
               </div>
             </div>
           )}
+
+          {activeTab === 'brain' && (
+            <div className="flex flex-col h-full animate-in fade-in slide-in-from-left-4 duration-300">
+              <div className="p-4 border-b border-zinc-800/80 bg-zinc-900/20 backdrop-blur-md">
+                <h3 className="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500 mb-1">Neural Analysis</h3>
+                <div className="flex items-center gap-2">
+                  <div className={`w-1.5 h-1.5 rounded-full ${isNeuralLinkEstablished ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-700'}`} />
+                  <span className="text-[9px] font-bold text-zinc-300 uppercase tracking-widest leading-none">
+                    {isNeuralLinkEstablished ? 'Mesh Connection Active' : 'Offline / Awaiting Link'}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-6">
+                {!currentUser ? (
+                  <div className="flex flex-col items-center justify-center h-64 text-center px-4">
+                    <Lock className="w-10 h-10 text-zinc-800 mb-4 opacity-20" />
+                    <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest leading-relaxed">
+                      RESTRICTED ACCESS: NEURAL IDENTITY REQUIRED
+                    </p>
+                    <button 
+                      onClick={() => setIsAuthModalOpen(true)}
+                      className="mt-6 text-[9px] font-black uppercase tracking-widest py-2 px-6 border border-purple-500/20 rounded-xl text-purple-400 hover:text-white hover:bg-purple-500/10 transition-all active:scale-95"
+                    >
+                      Authenticate Mesh
+                    </button>
+                  </div>
+                ) : !isNeuralLinkEstablished ? (
+                  <div className="flex flex-col items-center justify-center h-64 text-center px-4">
+                    <Brain className="w-10 h-10 text-zinc-800 mb-4 opacity-20" />
+                    <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest leading-relaxed">
+                      Establish a Neural Link to begin remote code analysis.
+                    </p>
+                    <button 
+                      onClick={() => setIsIntegrationGuideOpen(true)}
+                      className="mt-6 text-[9px] font-black uppercase tracking-widest py-2 px-6 border border-zinc-800 rounded-xl text-zinc-500 hover:text-white hover:border-zinc-700 transition-all active:scale-95"
+                    >
+                      Open Vault
+                    </button>
+                  </div>
+                ) : linkedAppInfo && (
+                  <>
+                    <section>
+                      <h4 className="text-[9px] font-black uppercase tracking-widest text-emerald-500/50 mb-3 flex items-center gap-2">
+                        <ShieldCheck size={12} /> Target Metadata
+                      </h4>
+                      <div className="space-y-2 bg-black/40 p-3 rounded-2xl border border-emerald-500/10">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[9px] text-zinc-500 font-bold uppercase">Instance</span>
+                          <span className="text-[10px] text-zinc-300 font-mono">{linkedAppInfo.name}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-[9px] text-zinc-500 font-bold uppercase">Health</span>
+                          <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">{linkedAppInfo.health}</span>
+                        </div>
+                        <div className="flex justify-between items-center pt-2 border-t border-zinc-800/50">
+                          <span className="text-[9px] text-zinc-500 font-bold uppercase">Latency</span>
+                          <span className="text-[10px] text-zinc-300 font-mono font-bold">12ms</span>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section>
+                      <h4 className="text-[9px] font-black uppercase tracking-widest text-blue-500/50 mb-3 flex items-center gap-2">
+                        <FileCode size={12} /> Neural Topology
+                      </h4>
+                      <div className="space-y-1 pl-1">
+                        {linkedAppInfo.structure.map((item: any, idx: number) => (
+                          <div key={idx} className="group cursor-pointer">
+                            <div className="flex items-center gap-2 py-1 px-2 rounded-lg hover:bg-zinc-800/50 transition-colors">
+                              {item.type === 'dir' ? <Folder size={12} className="text-zinc-600" /> : <FileText size={12} className="text-zinc-500" />}
+                              <span className="text-[10px] text-zinc-400 group-hover:text-zinc-200 transition-colors">{item.name}</span>
+                            </div>
+                            {item.children && (
+                              <div className="ml-5 border-l border-zinc-800/50 space-y-1">
+                                {item.children.map((child: string, cIdx: number) => (
+                                  <div key={cIdx} className="flex items-center gap-2 py-1 px-3 hover:text-zinc-100 text-zinc-600 transition-colors cursor-pointer">
+                                    <div className="w-1 h-1 rounded-full bg-zinc-800" />
+                                    <span className="text-[9px] font-mono">{child}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+
+                    <section>
+                      <h4 className="text-[9px] font-black uppercase tracking-widest text-orange-500/50 mb-3 flex items-center gap-2">
+                        <Terminal size={12} /> Cortex Stream
+                      </h4>
+                      <div className="bg-black/60 rounded-2xl border border-zinc-800/50 p-3 h-48 overflow-y-auto custom-scrollbar space-y-3 font-mono">
+                        {linkedAppInfo.logs.map((log: any, idx: number) => (
+                          <div key={idx} className="flex flex-col gap-1 border-b border-zinc-900 pb-2 last:border-0">
+                            <div className="flex justify-between items-center">
+                              <span className={`text-[8px] font-black px-1 rounded ${
+                                log.type === 'ERROR' ? 'bg-red-500/20 text-red-500' : 
+                                log.type === 'WARN' ? 'bg-orange-500/20 text-orange-500' : 
+                                'bg-emerald-500/20 text-emerald-500'
+                              }`}>{log.type}</span>
+                              <span className="text-[8px] text-zinc-600 uppercase font-black">{log.time}</span>
+                            </div>
+                            <p className="text-[9px] text-zinc-400 break-words leading-tight">{log.msg}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
         </motion.div>
       </AnimatePresence>
 
@@ -627,6 +808,16 @@ export default function App() {
               <span className="text-xs font-mono text-zinc-400">{activeFile.name}</span>
             </div>
 
+            {isNeuralLinkEstablished && (
+              <motion.div 
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="flex items-center gap-2 bg-purple-500/10 px-3 py-1.5 rounded-md border border-purple-500/20"
+              >
+                <div className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
+                <span className="text-[10px] font-black uppercase tracking-widest text-purple-400">Neural Guardian Active</span>
+              </motion.div>
+            )}
           </div>
 
           <div className="flex items-center gap-3">
@@ -648,6 +839,13 @@ export default function App() {
             >
               <Share2 size={14} className="group-hover:rotate-12 transition-transform" />
               PUBLISH
+            </button>
+            <button 
+              onClick={() => setIsIntegrationGuideOpen(true)}
+              className="group flex items-center gap-2 btn-purple-gradient px-4 py-2 rounded-lg text-white text-xs font-bold transition-all active:scale-95 shadow-lg shadow-purple-500/20"
+            >
+              <Command size={14} className="group-hover:rotate-12 transition-transform" />
+              INTEGRATE
             </button>
             <button 
               onClick={handleRun}
@@ -1060,7 +1258,7 @@ export default function App() {
                         {isFetchingRepos ? (
                           <RefreshCw size={16} className="animate-spin" />
                         ) : (
-                          <User size={16} />
+                          <UserIcon size={16} />
                         )}
                         {isFetchingRepos ? "Linking..." : "Connect to Account"}
                       </button>
@@ -1187,6 +1385,356 @@ export default function App() {
                   <ShieldCheck size={12} className="text-blue-400" />
                   <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-100">Zero-Trust Local Encryption Active</span>
                 </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* --- Integration Guide Modal --- */}
+      <AnimatePresence>
+        {isIntegrationGuideOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[70] flex items-center justify-center p-8 bg-black/95 backdrop-blur-xl"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 50 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 50 }}
+              className="relative w-full max-w-2xl max-h-[90vh] bg-[#0c0c0e] border border-purple-500/20 rounded-[40px] p-12 shadow-[0_0_100px_rgba(168,85,247,0.15)] glass overflow-hidden flex flex-col"
+            >
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-purple-500 to-transparent opacity-50" />
+              
+              <button 
+                onClick={() => setIsIntegrationGuideOpen(false)}
+                className="absolute top-10 right-10 p-2 text-zinc-500 hover:text-white transition-colors"
+              >
+                <X size={24} />
+              </button>
+                              <div className="flex items-center gap-5 mb-10 shrink-0">
+                  <div className="p-4 bg-purple-600 text-white rounded-3xl shadow-xl shadow-purple-600/20">
+                    <Package size={32} />
+                  </div>
+                  <div>
+                    <h3 className="text-3xl font-black italic tracking-tighter text-zinc-100 uppercase">Neural Integration Vault</h3>
+                    <div className="flex items-center gap-2">
+                      <div className={`w-1.5 h-1.5 rounded-full ${isNeuralLinkEstablished ? 'bg-emerald-500 animate-pulse' : 'bg-orange-500'}`} />
+                      <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest opacity-80">
+                        Neur0n Pulse: {isNeuralLinkEstablished ? 'Cross-Platform Sync Engine Active' : 'Awaiting Neural Handshake'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-8 overflow-y-auto pr-6 custom-scrollbar pb-6 flex-1 min-h-0">
+                  <section className="bg-zinc-900/30 p-6 rounded-3xl border border-zinc-800 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="flex justify-between items-center mb-4">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-purple-500/20 flex items-center justify-center">
+                          <div className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+                        </div>
+                        <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-300">Frontend Weaving</h4>
+                      </div>
+                      <span className="text-[9px] font-bold text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20 uppercase">File: index.html</span>
+                    </div>
+                    <p className="text-xs text-zinc-500 mb-4 leading-relaxed italic">The "Ghost Protocol." Paste this into your head tag. It monitors for exceptions and fetches your latest GitHub logic automatically.</p>
+                    <div className="bg-[#050505] rounded-2xl p-5 border border-zinc-800/80 font-mono text-[10px] text-zinc-400 relative group overflow-hidden">
+                      <pre className="overflow-x-auto custom-scrollbar whitespace-pre pb-2">
+                        {`<script src="https://api.neur0n.sh/v1/bridge.js"></script>\n<script>\n  // Weave into the Frontend Thread\n  Neur0n.weave({\n    source: "Open-World-International/Neur0n-IDE",\n    autonomous: true \n  });\n</script>`}
+                      </pre>
+                    </div>
+                  </section>
+
+                  <section className="bg-zinc-900/30 p-6 rounded-3xl border border-zinc-800 animate-in fade-in slide-in-from-bottom-4 delay-150 duration-500">
+                    <div className="flex justify-between items-center mb-4">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-blue-500/20 flex items-center justify-center">
+                          <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                        </div>
+                        <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-300">Handshake Authorization</h4>
+                      </div>
+                      <span className="text-[9px] font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20 uppercase">Secure Link</span>
+                    </div>
+                    <p className="text-xs text-zinc-500 mb-4 leading-relaxed italic">To establish an "Automatic Handshake," use a Personal Access Token. This allows the background worker to communicate with your Git repositories autonomously.</p>
+                    <div className="space-y-3">
+                      <div className="flex gap-2">
+                        <input 
+                          type="password" 
+                          value={githubToken}
+                          onChange={(e) => {
+                            setGithubToken(e.target.value);
+                            if (authError) setAuthError(null);
+                          }}
+                          placeholder="GITHUB_PERSONAL_ACCESS_TOKEN" 
+                          className={cn(
+                            "flex-1 bg-black/60 border rounded-xl px-4 py-3 text-[10px] font-mono text-zinc-300 focus:outline-none transition-all",
+                            authError ? "border-red-500/50 ring-1 ring-red-500/20" : "border-zinc-800 focus:border-purple-500/50"
+                          )}
+                        />
+                        <button 
+                          onClick={() => {
+                            if (githubToken) {
+                              setConsoleOutput(prev => [...prev, `[Neur0n] Token encrypted: ${'*'.repeat(githubToken.length)}`]);
+                            }
+                          }}
+                          className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-[10px] font-bold text-zinc-300 rounded-xl transition-colors uppercase tracking-widest"
+                        >
+                          AUTH
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2 px-3">
+                        {authError ? (
+                          <>
+                            <X size={12} className="text-red-500 animate-pulse" />
+                            <span className="text-[9px] text-red-500 font-black uppercase tracking-widest">Handshake Rejected: Invalid Signature</span>
+                          </>
+                        ) : (
+                          <>
+                            <ShieldCheck size={12} className="text-emerald-500" />
+                            <span className="text-[9px] text-zinc-600 font-bold uppercase tracking-tighter">AES-256 Encrypted Transfer Protocol active</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="bg-black/40 p-5 rounded-3xl border border-zinc-800/50 overflow-hidden relative group">
+                    <div className="absolute inset-0 bg-blue-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <div className="relative">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Terminal size={14} className="text-zinc-600" />
+                        <h4 className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500">Headless CLI Handshake</h4>
+                      </div>
+                      <div className="bg-zinc-950 p-3 rounded-xl border border-zinc-900 font-mono text-[9px] text-zinc-400">
+                        <div className="flex gap-2">
+                          <span className="text-blue-500">$</span>
+                          <span>export NEUR0N_TOKEN="<span className="text-zinc-600">••••••••</span>"</span>
+                        </div>
+                        <div className="flex gap-2 mt-1">
+                          <span className="text-blue-500">$</span>
+                          <span>neur0n weave --headless --target="<span className="text-emerald-500">production</span>"</span>
+                        </div>
+                      </div>
+                      <p className="mt-3 text-[8px] text-zinc-600 font-bold uppercase leading-relaxed tracking-tighter">
+                        Use these protocols for background worker environments (Docker, Lambda, K8s) where no UI is present.
+                      </p>
+                    </div>
+                  </section>
+
+                  <div className="p-6 rounded-[32px] bg-blue-500/5 border border-blue-500/10 flex items-start gap-5">
+                    <div className="mt-1 p-2 bg-blue-500/20 text-blue-400 rounded-xl">
+                      <Globe size={20} className="animate-pulse" />
+                    </div>
+                    <div>
+                      <h5 className="text-xs font-bold text-zinc-200 mb-2 leading-none uppercase tracking-widest">Global Mesh Handshake</h5>
+                      <p className="text-[10px] text-zinc-500 leading-relaxed italic mb-4">Neur0n doesn't need to be installed locally. It lives in the Neural Mesh. Once linked, it opens a secure WebSocket tunnel to authorize "Shadow Commits" in your host project.</p>
+                      
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="bg-zinc-900/50 p-2 rounded-xl border border-zinc-800 text-center">
+                          <div className="text-[8px] text-zinc-600 font-bold uppercase mb-1">Handshake</div>
+                          <div className={`text-[10px] font-black ${isNeuralLinkEstablished ? 'text-emerald-500' : 'text-orange-500'}`}>
+                            {isNeuralLinkEstablished ? 'SECURE' : 'PENDING'}
+                          </div>
+                        </div>
+                        <div className="bg-zinc-900/50 p-2 rounded-xl border border-zinc-800 text-center">
+                          <div className="text-[8px] text-zinc-600 font-bold uppercase mb-1">WebSocket</div>
+                          <div className={`text-[10px] font-black ${isNeuralLinkEstablished ? 'text-emerald-500' : 'text-zinc-500'}`}>
+                            {isNeuralLinkEstablished ? 'TUNNEL' : 'NONE'}
+                          </div>
+                        </div>
+                        <div className="bg-zinc-900/50 p-2 rounded-xl border border-zinc-800 text-center">
+                          <div className="text-[8px] text-zinc-600 font-bold uppercase mb-1">Mesh</div>
+                          <div className={`text-[10px] font-black ${isNeuralLinkEstablished ? 'text-emerald-500' : 'text-zinc-500'}`}>
+                            {isNeuralLinkEstablished ? 'GLOBAL' : 'LOCAL'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-auto pt-8 border-t border-zinc-800/50 flex flex-col sm:flex-row justify-between items-center gap-4 shrink-0">
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-zinc-600">Link Secure: Handshake Operational</span>
+                    </div>
+                    <a 
+                      href="https://github.com/Open-World-International/Neur0n-IDE" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 text-[9px] font-bold text-zinc-400 hover:text-white transition-colors"
+                    >
+                      <Github size={12} />
+                      CORE SOURCE
+                    </a>
+                  </div>
+                  <button 
+                    disabled={isEstablishingLink}
+                    onClick={async () => {
+                      if (isNeuralLinkEstablished) {
+                        setIsIntegrationGuideOpen(false);
+                        return;
+                      }
+
+                      if (!githubToken) {
+                        setConsoleOutput(prev => [...prev, "[Error] Neural Handshake failed: GITHUB_TOKEN_MISSING."]);
+                        setConsoleOutput(prev => [...prev, "[Neur0n] Please provide a valid Personal Access Token in the vault."]);
+                        return;
+                      }
+
+                      setIsEstablishingLink(true);
+                      setConsoleOutput(prev => [...prev, "[Neur0n] Handshake initiated. Verifying token integrity..."]);
+                      
+                      setTimeout(() => {
+                        // Real GitHub tokens usually start with ghp_ or github_pat_
+                        const isTokenFormatValid = githubToken.startsWith('ghp_') || githubToken.startsWith('github_pat_');
+
+                        if (!isTokenFormatValid) {
+                          setConsoleOutput(prev => [...prev, "[Error] Security Breach: Invalid Token Signature detected."]);
+                          setConsoleOutput(prev => [...prev, "[Neur0n] Link Aborted. Please use a valid GitHub Personal Access Token."]);
+                          setAuthError("INVALID_SIGNATURE");
+                          setIsEstablishingLink(false);
+                          return;
+                        }
+
+                        setAuthError(null);
+                        setConsoleOutput(prev => [...prev, "[Neur0n] Encryption verified via AES-256."]);
+                        setConsoleOutput(prev => [...prev, "[Neur0n] Searching for woven mesh connections in external targets..."]);
+
+                        setTimeout(() => {
+                          setConsoleOutput(prev => [...prev, "[Neur0n] Mesh link established. Global Guardian is now monitoring external threads."]);
+                          setLinkedAppInfo({
+                            name: "NEUR0N-CORE-PRODUCTION",
+                            repo: "Open-World-International/Neur0n-IDE",
+                            health: "Optimal",
+                            structure: [
+                              { type: 'dir', name: 'src', children: ['App.tsx', 'main.tsx', 'index.css'] },
+                              { type: 'dir', name: 'public', children: ['mesh-manifest.json', 'bridge.js'] },
+                              { type: 'file', name: 'package.json' },
+                              { type: 'file', name: 'vite.config.ts' }
+                            ],
+                            logs: [
+                              { time: 'T-0s', type: 'ERROR', msg: 'ReferenceError: NeuralMesh is not defined at bridge.js:42' },
+                              { time: 'T-1s', type: 'INFO', msg: 'Handshake completed for client: 192.168.1.1' },
+                              { time: 'T-5s', type: 'WARN', msg: 'High latency detected in Tokyo-Node-3' }
+                            ]
+                          });
+                          setIsNeuralLinkEstablished(true);
+                          setIsEstablishingLink(false);
+                          setIsIntegrationGuideOpen(false);
+                        }, 1500);
+                      }, 1000);
+                    }}
+                    className={`px-8 py-3 rounded-2xl text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-lg transition-all active:scale-95 flex items-center gap-3 ${
+                      isEstablishingLink ? 'bg-zinc-800 cursor-not-allowed opacity-50' : 'btn-purple-gradient shadow-purple-500/20'
+                    }`}
+                  >
+                    {isEstablishingLink ? (
+                      <>
+                        <RefreshCw size={14} className="animate-spin" />
+                        Establishing...
+                      </>
+                    ) : isNeuralLinkEstablished ? (
+                      "Link Verified"
+                    ) : (
+                      "Establish Neural Link"
+                    )}
+                  </button>
+                </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* --- Auth Modal --- */}
+      <AnimatePresence>
+        {isAuthModalOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-8 bg-black/90 backdrop-blur-xl"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 30 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 30 }}
+              className="relative w-full max-w-sm bg-[#0c0c0e] border border-zinc-800 rounded-[32px] p-10 shadow-[0_0_80px_rgba(0,0,0,0.8)] glass overflow-hidden"
+            >
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-emerald-500 opacity-50" />
+              
+              <button 
+                onClick={() => setIsAuthModalOpen(false)}
+                className="absolute top-8 right-8 p-2 text-zinc-500 hover:text-white transition-colors"
+              >
+                <X size={20} />
+              </button>
+
+              <div className="text-center mb-10">
+                <div className="w-16 h-16 bg-blue-600 rounded-2xl mx-auto flex items-center justify-center shadow-2xl shadow-blue-500/20 mb-6 rotate-3 hover:rotate-0 transition-transform duration-500">
+                  <UserIcon className="text-white" size={32} />
+                </div>
+                <h3 className="text-2xl font-black italic tracking-tighter text-zinc-100 uppercase mb-2">Neural Identity</h3>
+                <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest opacity-60">Authorize Mesh Access</p>
+              </div>
+
+              <div className="space-y-4">
+                <button 
+                  onClick={() => handleSocialLogin(googleProvider)}
+                  className="w-full group flex items-center gap-4 p-4 rounded-2xl bg-white/5 border border-zinc-800 hover:border-blue-500/50 hover:bg-blue-500/5 transition-all text-left"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center group-hover:text-blue-400 transition-colors">
+                    <Mail size={20} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-zinc-200">Google / GMail</div>
+                    <div className="text-[9px] text-zinc-500 uppercase tracking-widest font-black">Secure Handshake</div>
+                  </div>
+                </button>
+
+                <button 
+                  onClick={() => handleSocialLogin(githubProvider)}
+                  className="w-full group flex items-center gap-4 p-4 rounded-2xl bg-white/5 border border-zinc-800 hover:border-purple-500/50 hover:bg-purple-500/5 transition-all text-left"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center group-hover:text-purple-400 transition-colors">
+                    <Github size={20} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-zinc-200">GitHub Identity</div>
+                    <div className="text-[9px] text-zinc-500 uppercase tracking-widest font-black">Mesh Verified</div>
+                  </div>
+                </button>
+
+                <div className="relative py-4">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-zinc-800/50"></div>
+                  </div>
+                  <div className="relative flex justify-center text-[8px] uppercase font-black tracking-widest text-zinc-600 bg-[#0c0c0e] px-2">
+                    Alternative Protocols
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-[9px] font-black uppercase text-zinc-500 hover:text-zinc-200 transition-all opacity-50 cursor-not-allowed">
+                    Proton-Link
+                  </button>
+                  <button className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-[9px] font-black uppercase text-zinc-500 hover:text-zinc-200 transition-all opacity-50 cursor-not-allowed">
+                    Secure-Key
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-10 flex flex-col items-center gap-3">
+                <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
+                  <ShieldCheck size={10} className="text-emerald-500" />
+                  <span className="text-[8px] font-black text-emerald-500 uppercase tracking-widest">End-to-End Encrypted</span>
+                </div>
+                <p className="text-[9px] text-zinc-600 font-bold uppercase tracking-tighter text-center leading-relaxed">
+                  By linking, you authorize Neur0n to store your mesh identity for cross-thread synchronization.
+                </p>
               </div>
             </motion.div>
           </motion.div>

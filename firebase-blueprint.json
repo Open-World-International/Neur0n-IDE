@@ -1,0 +1,24 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Represents a user of the Neur0n IDE mesh system.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "format": "email", "description": "User email address" },
+        "displayName": { "type": "string", "description": "Name from the provider" },
+        "photoURL": { "type": "string", "description": "Avatar URL" },
+        "lastLogin": { "type": "string", "format": "date-time", "description": "Server timestamp of last login" },
+        "provider": { "type": "string", "description": "Auth provider (google, github, etc.)" }
+      },
+      "required": ["uid", "email"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "Collection of authorized mesh users."
+    }
+  }
+}
