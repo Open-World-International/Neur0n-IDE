@@ -92,14 +92,30 @@ export default function App() {
     "[System] Kernel: Neuron-OS v2.4.x",
     "[System] Memory Handshake... OK",
     "[System] Frequency: 432Hz Synchronized.",
-    "[Mesh] Topology Scan: Pending..."
+    "[Mesh] Topology Scan: Active..."
   ]);
 
   useEffect(() => {
+    // Add a slight delay to simulate topology discovery
     const timer = setTimeout(() => {
       setMeshOutput(prev => [...prev, "[Mesh] Topology: Link Established. Local Node is Master."]);
     }, 2000);
-    return () => clearTimeout(timer);
+    
+    // Add periodic heartbeat to prove it's NOT frozen
+    const interval = setInterval(() => {
+      setMeshOutput(prev => {
+        const lastLine = prev[prev.length - 1];
+        if (lastLine.includes("Heartbeat")) {
+          return [...prev.slice(0, -1), `[Mesh] Heartbeat: ${new Date().toLocaleTimeString()} (Active)`];
+        }
+        return [...prev, `[Mesh] Heartbeat: ${new Date().toLocaleTimeString()} (Active)`];
+      });
+    }, 15000);
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
   }, []);
   const [executionOutput, setExecutionOutput] = useState<string[]>([]);
   const [isExecutionWindowOpen, setIsExecutionWindowOpen] = useState(false);
@@ -610,30 +626,38 @@ export default function App() {
                     <circle cx="50" cy="50" r="4" className="fill-white" />
                     {/* Dendrites/Axon branches */}
                     <g className="stroke-blue-400 stroke-[1.5] stroke-round fill-none">
-                      {/* Detailed axon/dendrite branches to look more like a real neuron */}
-                      <path d="M50 38 Q50 20 75 12" className="opacity-60" />
-                      <path d="M50 38 Q30 20 5 15" className="opacity-40" />
-                      <path d="M62 50 Q95 45 95 80" className="opacity-50" />
-                      <path d="M38 50 Q5 45 8 85" className="opacity-30" />
-                      <path d="M50 62 Q55 95 85 92" className="opacity-60" />
-                      <path d="M50 62 Q45 95 15 95" className="opacity-40" />
-                      <path d="M42 42 L30 30" className="opacity-50" />
-                      <path d="M58 42 L70 30" className="opacity-50" />
-                      <path d="M58 58 L70 70" className="opacity-50" />
-                      <path d="M42 58 L30 70" className="opacity-50" />
+                      {/* Detailed axon/dendrite branches with techno nodes */}
+                      <path d="M50 38 Q50 20 75 12" className="opacity-80 animate-pulse" />
+                      <path d="M50 38 Q30 20 5 15" className="opacity-60" />
+                      <path d="M62 50 Q95 45 95 80" className="opacity-70 animate-pulse" />
+                      <path d="M38 50 Q5 45 8 85" className="opacity-50" />
+                      <path d="M50 62 Q55 95 85 92" className="opacity-80" />
+                      <path d="M50 62 Q45 95 15 95" className="opacity-60 animate-pulse" />
+                      
+                      {/* Internal structure connections */}
+                      <path d="M42 42 L30 30" className="opacity-40" />
+                      <path d="M58 42 L70 30" className="opacity-40" />
+                      <path d="M58 58 L70 70" className="opacity-40" />
+                      <path d="M42 58 L30 70" className="opacity-40" />
+                      
+                      {/* Circuitry patterns */}
+                      <path d="M15 95 L15 85 L5 85" className="opacity-30 stroke-[0.5]" />
+                      <path d="M85 92 L85 82 L95 82" className="opacity-30 stroke-[0.5]" />
                     </g>
-                    {/* Synaptic Nodes with glow effects */}
-                    <g className="fill-white drop-shadow-[0_0_2px_rgba(255,255,255,0.8)]">
-                      <circle cx="75" cy="12" r="1.5" />
+                    {/* Synaptic Data Nodes with glow effects */}
+                    <g className="fill-white drop-shadow-[0_0_3px_rgba(59,130,246,0.8)]">
+                      <circle cx="75" cy="12" r="1.8" className="animate-pulse" />
                       <circle cx="5" cy="15" r="1.5" />
-                      <circle cx="95" cy="80" r="1.5" />
+                      <circle cx="95" cy="80" r="1.8" />
                       <circle cx="8" cy="85" r="1.5" />
-                      <circle cx="85" cy="92" r="1.5" />
+                      <circle cx="85" cy="92" r="1.8" className="animate-pulse" />
                       <circle cx="15" cy="95" r="1.5" />
-                      <circle cx="30" cy="30" r="1" />
-                      <circle cx="70" cy="30" r="1" />
-                      <circle cx="70" cy="70" r="1" />
-                      <circle cx="30" cy="70" r="1" />
+                      
+                      {/* Micro nodes */}
+                      <circle cx="30" cy="30" r="1" className="fill-blue-200" />
+                      <circle cx="70" cy="30" r="1" className="fill-blue-200" />
+                      <circle cx="70" cy="70" r="1" className="fill-blue-200" />
+                      <circle cx="30" cy="70" r="1" className="fill-blue-200" />
                     </g>
                   </svg>
                   
@@ -727,8 +751,26 @@ export default function App() {
                 <div className="space-y-4 mb-8">
                   <div className="p-4 bg-zinc-900/50 rounded-2xl border border-zinc-800">
                     <p className="text-xs text-zinc-300 leading-relaxed font-medium">
-                      Welcome to <span className="text-blue-500 font-bold">Neur0n</span>. You are accessing a neural-accelerated IDE designed for learning and professional development. 
+                      Welcome to <span className="text-blue-500 font-bold">Neur0n IDE</span>. You are accessing a neural-accelerated environment where code meets consciousness. Designed for learning, experimentation, and professional architects.
                     </p>
+                  </div>
+
+                  <div className="p-4 bg-blue-500/5 border border-blue-500/10 rounded-2xl">
+                    <h3 className="text-[10px] font-black uppercase text-blue-400 mb-2">Getting Started</h3>
+                    <ul className="text-[9px] text-zinc-400 space-y-2 font-medium">
+                      <li className="flex items-start gap-2">
+                        <span className="text-blue-500 mt-0.5">•</span>
+                        <span>Use the <span className="text-zinc-200">Execution Mesh</span> to run code instantly.</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-blue-500 mt-0.5">•</span>
+                        <span>Collaborate with <span className="text-zinc-200">Neur0-L1nk AI</span> for intelligent pair programming.</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-blue-500 mt-0.5">•</span>
+                        <span>Manage your topology via the <span className="text-zinc-200">Terminal</span> in the sidebar.</span>
+                      </li>
+                    </ul>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
@@ -956,7 +998,7 @@ export default function App() {
                       <Github size={18} className="text-zinc-500 group-hover:text-white" />
                       <div className="text-left">
                         <div className="text-[10px] font-black text-zinc-300 uppercase italic">Neur0n GitHub</div>
-                        <div className="text-[8px] text-zinc-600 font-mono">Contribute to the Mesh</div>
+                        <div className="text-[8px] text-zinc-600 font-mono">Archived by @vishwabalamurugan2013</div>
                       </div>
                     </div>
                     <ExternalLink size={14} className="text-zinc-700 group-hover:text-blue-400" />

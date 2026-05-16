@@ -7,7 +7,7 @@ const app = initializeApp(firebaseConfig);
 
 // Use initializeFirestore with settings balanced for both web preview and native execution
 const firestoreSettings = {
-  experimentalForceLongPolling: true, // Forced for maximum compatibility in Electron/Sandboxes
+  experimentalForceLongPolling: true, // Standard for restricted environments
   ignoreUndefinedProperties: true,
 };
 

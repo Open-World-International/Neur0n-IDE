@@ -32,12 +32,14 @@
       "target": [
         "portable",
         "nsis"
-      ]
+      ],
+      "icon": "electron/icon.png"
     },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": false
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": true
     },
     "mac": {
       "target": "dmg"
