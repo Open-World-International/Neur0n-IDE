@@ -7,7 +7,7 @@ const app = initializeApp(firebaseConfig);
 
 // Use initializeFirestore with settings balanced for both web preview and native execution
 const firestoreSettings = {
-  experimentalAutoDetectLongPolling: true, // Smarter than forcing it
+  experimentalForceLongPolling: true, // Forced for maximum compatibility in Electron/Sandboxes
   ignoreUndefinedProperties: true,
 };
 
@@ -28,8 +28,9 @@ export enum OperationType {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errMessage = error instanceof Error ? error.message : String(error);
   const errInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errMessage,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -39,12 +40,15 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   };
-  console.error('[Neur0n] Firestore Identity Sync Failure:', errInfo);
-  // Do not throw in production if it's a connectivity issue to avoid crashing the UI
-  if (errInfo.error.includes('Could not reach Cloud Firestore backend')) {
-     console.warn('[Neur0n] Mesh is in OFFLINE mode.');
+  
+  // Suppress "Could not reach Cloud Firestore backend" noise in console
+  if (errMessage.includes('Could not reach Cloud Firestore backend') || errMessage.includes('offline')) {
+     console.warn('[Neur0n] Mesh link is currently in OFFLINE mode. Local state preserved.');
      return;
   }
+
+  console.error('[Neur0n] Mesh Identity Sync Failure:', errInfo);
+  // Throwing stringified JSON as per integration requirements for debugging
   throw new Error(JSON.stringify(errInfo));
 }
 
@@ -52,6 +56,7 @@ export async function syncUserToFirestore(user: any) {
   if (!db) return;
   const userRef = doc(db, 'users', user.uid);
   try {
+    // Attempt background sync
     await setDoc(userRef, {
       uid: user.uid,
       email: user.email,
@@ -62,6 +67,7 @@ export async function syncUserToFirestore(user: any) {
     }, { merge: true });
     console.log(`[Neur0n] Mesh Identity Synced: ${user.uid}`);
   } catch (error) {
+    // Graceful failure for identity sync
     handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}`);
   }
 }

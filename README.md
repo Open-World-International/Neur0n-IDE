@@ -25,9 +25,3 @@ All communications are encrypted using AES-256 protocols (simulated in UI). Pers
 
 - **Name**: Neur0n-IDE
 - **Version**: 1.0.0-mesh
-
-##  Availability:
-
--**Version 1.0.0-mesh**: It is now available in releases! Check it out (Neur0n-IDE)
-
-

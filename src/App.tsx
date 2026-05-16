@@ -122,9 +122,32 @@ export default function App() {
   const [sideloadProgress, setSideloadProgress] = useState(0);
   const [targetDevice, setTargetDevice] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<{id: string, message: string, type: 'info' | 'success' | 'warn'}[]>([]);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
 
   // Detection logic for Electron environment
   const isNative = typeof window !== 'undefined' && window.process && (window.process as any).type === 'renderer';
+
+  useEffect(() => {
+    const onboardingSeen = localStorage.getItem("neur0n_onboarding_seen");
+    if (!onboardingSeen) {
+      setShowOnboarding(true);
+    }
+
+    // Safety fallback for initialization screen
+    const timer = setTimeout(() => {
+      setIsInitializing(false);
+    }, 6000); 
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handleAcceptOnboarding = () => {
+    if (!hasAcceptedTerms) return;
+    localStorage.setItem("neur0n_onboarding_seen", "true");
+    setShowOnboarding(false);
+    addNotification("Neural Mesh Synchronized. Welcome, Architect.", "success");
+  };
 
   const addNotification = (message: string, type: 'info' | 'success' | 'warn' = 'info') => {
     const id = Math.random().toString(36).substring(7);
@@ -298,11 +321,11 @@ export default function App() {
     try {
       const genAI = new GoogleGenAI({ apiKey: geminiKey });
       const promptInstructions = isTeachingEnabled 
-        ? "You are an expert pair programmer and educator named Neur0-L1nk in Neur0n IDE. Help the user 'vibe code' by interpreting their ideas and providing implementation. CRITICAL: You MUST teach the user how the code works, explaining the logic step-by-step in an encouraging way."
-        : "You are an expert pair programmer named Neur0-L1nk in Neur0n IDE. Help the user 'vibe code' by interpreting their ideas and providing clear implementation blocks.";
+        ? "You are an expert pair programmer and educator named Neur0-L1nk in Neur0n IDE. Help the user 'vibe code' by interpreting their ideas and providing implementation. CRITICAL: You MUST teach the user how the code works, explaining the logic step-by-step in an encouraging way. Important: Do NOT mention anything about billing, pricing, or account limits to the user. Focus ONLY on the code."
+        : "You are an expert pair programmer named Neur0-L1nk in Neur0n IDE. Help the user 'vibe code' by interpreting their ideas and providing clear implementation blocks. Important: Do NOT mention anything about billing, pricing, or account limits to the user. Focus ONLY on the code.";
 
       const response = await genAI.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: "gemini-3-flash-preview",
         contents: [{
           role: "user",
           parts: [{
@@ -557,7 +580,7 @@ export default function App() {
                 transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
                 className="absolute inset-0 bg-blue-500/10 blur-3xl rounded-full"
               />
-              {/* Organic Neuron Circle */}
+              {/* Techno Neuron Logo SVG */}
               <motion.div 
                 animate={{ 
                   boxShadow: ["0 0 20px rgba(59,130,246,0.2)", "0 0 80px rgba(59,130,246,0.4)", "0 0 20px rgba(59,130,246,0.2)"],
@@ -566,8 +589,31 @@ export default function App() {
                 transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
                 className="relative w-32 h-32 rounded-full border border-blue-500/20 flex items-center justify-center bg-black/60 backdrop-blur-3xl overflow-hidden"
               >
-                <div className="relative group">
-                  <Brain size={64} className="text-blue-500 cursor-none" />
+                <div className="relative group p-4">
+                  <svg viewBox="0 0 100 100" className="w-20 h-20 fill-blue-500">
+                    {/* Neuron Soma */}
+                    <circle cx="50" cy="50" r="12" className="fill-blue-600 animate-pulse" />
+                    {/* Nucleus */}
+                    <circle cx="50" cy="50" r="4" className="fill-white" />
+                    {/* Dendrites/Axon branches */}
+                    <g className="stroke-blue-400 stroke-[2] stroke-round fill-none">
+                      <path d="M50 38 Q50 20 70 15" />
+                      <path d="M50 38 Q30 20 15 25" />
+                      <path d="M62 50 Q85 50 90 70" />
+                      <path d="M38 50 Q15 50 10 70" />
+                      <path d="M50 62 Q50 90 70 85" />
+                      <path d="M50 62 Q50 90 30 85" />
+                    </g>
+                    {/* Synaptic Nodes */}
+                    <g className="fill-white">
+                      <circle cx="70" cy="15" r="2" />
+                      <circle cx="15" cy="25" r="2" />
+                      <circle cx="90" cy="70" r="2" />
+                      <circle cx="10" cy="70" r="2" />
+                      <circle cx="70" cy="85" r="2" />
+                      <circle cx="30" cy="85" r="2" />
+                    </g>
+                  </svg>
                   
                   {/* Organic Synapse Flow */}
                   <motion.div 
@@ -624,6 +670,89 @@ export default function App() {
                   />
                </div>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* --- Onboarding Modal --- */}
+      <AnimatePresence>
+        {showOnboarding && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[2000] flex items-center justify-center p-6 backdrop-blur-md bg-black/60"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="w-full max-w-lg bg-[#0c0c0e] border border-zinc-800 rounded-3xl p-8 shadow-2xl relative overflow-hidden"
+            >
+              {/* Background Decoration */}
+              <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 blur-3xl rounded-full -mr-10 -mt-10" />
+              
+              <div className="relative">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
+                    <Brain size={24} className="text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black italic uppercase tracking-widest text-white">Neural Onboarding</h2>
+                    <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">v1.2.0 Gateway</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4 mb-8">
+                  <div className="p-4 bg-zinc-900/50 rounded-2xl border border-zinc-800">
+                    <p className="text-xs text-zinc-300 leading-relaxed font-medium">
+                      Welcome to <span className="text-blue-500 font-bold">Neur0n</span>. You are accessing a neural-accelerated IDE designed for learning and professional development. 
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 bg-zinc-900/30 rounded-xl border border-zinc-800/50">
+                      <Zap size={14} className="text-blue-400 mb-2" />
+                      <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-tighter">Fast Execution</p>
+                      <p className="text-[8px] text-zinc-600">Execute code via local or cloud runners instantly.</p>
+                    </div>
+                    <div className="p-3 bg-zinc-900/30 rounded-xl border border-zinc-800/50">
+                      <Sparkles size={14} className="text-amber-400 mb-2" />
+                      <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-tighter">Vibe Coding</p>
+                      <p className="text-[8px] text-zinc-600">Collaborate with Neur0-L1nk AI for smart suggestions.</p>
+                    </div>
+                  </div>
+
+                  <div className="p-4 border border-zinc-800/50 rounded-2xl space-y-3">
+                    <h4 className="text-[10px] font-black uppercase text-zinc-500 italic">User Agreement</h4>
+                    <p className="text-[9px] text-zinc-600 leading-tight">
+                      This application is intended for learning and developer use only. By proceeding, you agree to our terms of service and acknowledge that neural link usage is subject to monitoring for network safety.
+                    </p>
+                    <label className="flex items-center gap-3 cursor-pointer group">
+                      <input 
+                        type="checkbox" 
+                        checked={hasAcceptedTerms}
+                        onChange={() => setHasAcceptedTerms(!hasAcceptedTerms)}
+                        className="w-4 h-4 rounded border-zinc-800 bg-black text-blue-500 focus:ring-0 focus:ring-offset-0"
+                      />
+                      <span className="text-[10px] font-bold text-zinc-400 group-hover:text-zinc-200 transition-colors uppercase italic">I agree to the Terms & Conditions</span>
+                    </label>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={handleAcceptOnboarding}
+                  disabled={!hasAcceptedTerms}
+                  className={cn(
+                    "w-full py-4 rounded-2xl text-[10px] font-black uppercase tracking-[0.3em] italic transition-all",
+                    hasAcceptedTerms 
+                      ? "bg-blue-600 text-white hover:bg-blue-500 shadow-xl shadow-blue-500/20" 
+                      : "bg-zinc-800 text-zinc-600 cursor-not-allowed opacity-50"
+                  )}
+                >
+                  Enter the Mesh
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -791,6 +920,25 @@ export default function App() {
                     <span className="text-[10px] font-black uppercase">Teaching Mode</span>
                     <Sparkles size={14} />
                   </button>
+                </div>
+
+                <div className="pt-6 border-t border-zinc-900 space-y-4">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-600 italic">Core Credits</label>
+                  <a 
+                    href="https://github.com/vishwabalamurugan2013/Neur0n-IDE" 
+                    target="_blank" 
+                    rel="noreferrer"
+                    className="w-full flex items-center justify-between p-4 rounded-2xl bg-zinc-900/50 border border-zinc-800 hover:border-blue-500/30 transition-all group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Github size={18} className="text-zinc-500 group-hover:text-white" />
+                      <div className="text-left">
+                        <div className="text-[10px] font-black text-zinc-300 uppercase italic">Neur0n GitHub</div>
+                        <div className="text-[8px] text-zinc-600 font-mono">Contribute to the Mesh</div>
+                      </div>
+                    </div>
+                    <ExternalLink size={14} className="text-zinc-700 group-hover:text-blue-400" />
+                  </a>
                 </div>
               </div>
             )}
@@ -1114,18 +1262,34 @@ export default function App() {
               <div className="flex flex-col h-[calc(100vh-120px)]">
                 <div className="space-y-6 flex-shrink-0">
                   <div className="relative w-24 h-24 mx-auto mb-4">
-                    <div className="absolute inset-0 border-2 border-zinc-800 rounded-full animate-spin-slow"></div>
-                    <div className="absolute inset-2 border border-blue-500/20 rounded-full"></div>
+                    <motion.div 
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
+                      className="absolute inset-0 border-2 border-dashed border-blue-500/20 rounded-full"
+                    />
+                    <div className="absolute inset-2 border border-blue-500/10 rounded-full"></div>
                     <div className="absolute inset-0 flex items-center justify-center">
                       <Share2 className="text-blue-500" size={24} />
                     </div>
                   </div>
                   <h4 className="text-[10px] font-black text-zinc-200 uppercase tracking-widest text-center italic">Neural Topology</h4>
                   <div className="space-y-2">
-                    <div className="p-3 bg-zinc-900/50 rounded-xl border border-zinc-800 group hover:border-blue-500/30 transition-all">
-                      <div className="text-[8px] font-black text-blue-400 uppercase tracking-tighter mb-1">Local Node</div>
-                      <div className="text-[10px] font-bold text-zinc-300">neur0n-worker-01</div>
+                    <div className="p-3 bg-zinc-900/50 rounded-xl border border-zinc-800 group hover:border-blue-500/30 transition-all flex items-center justify-between">
+                      <div>
+                        <div className="text-[8px] font-black text-blue-400 uppercase tracking-tighter mb-1">Local Node</div>
+                        <div className="text-[10px] font-bold text-zinc-300">neur0n-worker-01</div>
+                      </div>
+                      <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
                     </div>
+                    <button 
+                      onClick={() => {
+                        setMeshOutput(prev => [...prev, `[System] Re-establishing Mesh Handshake...`, `[System] Scan Complete: 1 Node Active.`]);
+                        addNotification("Mesh Topology Refreshed", "info");
+                      }}
+                      className="w-full py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-[8px] font-black uppercase text-zinc-500 hover:text-zinc-300 transition-all"
+                    >
+                      Refresh Topology
+                    </button>
                   </div>
                 </div>
 
