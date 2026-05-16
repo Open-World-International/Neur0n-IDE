@@ -1,0 +1,48 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    
+    // --- Health Check ---
+    match /_health_check_/{document} {
+      allow read: if true;
+    }
+
+    // --- User Schema Validation ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email']) 
+        && data.uid is string && data.uid.size() <= 128
+        && data.email is string && data.email.size() <= 256
+        && (data.get('displayName', '') is string && data.get('displayName', '').size() <= 128)
+        && (data.get('photoURL', '') is string && data.get('photoURL', '').size() <= 1024)
+        && (data.get('provider', '') is string && data.get('provider', '').size() <= 64);
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if false; // Users cannot be listed for privacy
+      
+      allow create: if isOwner(userId) 
+        && isValidUser(incoming())
+        && incoming().uid == userId
+        && incoming().lastLogin == request.time
+        && incoming().keys().size() <= 7;
+
+      allow update: if isOwner(userId)
+        && isValidUser(incoming())
+        && incoming().uid == existing().uid
+        && incoming().lastLogin == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'lastLogin', 'provider']);
+    }
+  }
+}

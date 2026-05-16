@@ -18,6 +18,7 @@ import {
   Crown,
   Search,
   ChevronRight,
+  ChevronLeft,
   MessageSquare,
   Sparkles,
   Lock,
@@ -37,14 +38,29 @@ import {
   FileText,
   Mail,
   LogIn,
-  LogOut
+  LogOut,
+  Cpu,
+  Layers,
+  FolderTree,
+  HardDrive,
+  Monitor,
+  ShieldAlert,
+  Smartphone
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "./lib/utils";
 import { GoogleGenAI } from "@google/genai";
 import { USER_MANUAL_MARKDOWN } from "./constants";
 import { auth, googleProvider, githubProvider, syncUserToFirestore } from "./lib/firebase";
-import { exportLogsToExcel, LogEntry } from "./lib/excelExport";
+import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
+import type { User } from "firebase/auth";
+import { 
+  getVault, 
+  saveIdentity, 
+  deleteIdentity, 
+  forgeSignature, 
+  NeuralIdentity 
+} from "./lib/neuralVault";
 
 // --- Types ---
 interface FileEntry {
@@ -64,13 +80,16 @@ interface AppUser {
 // --- Components ---
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"explorer" | "github" | "settings" | "brain">("explorer");
+  const [activeTab, setActiveTab] = useState<"explorer" | "github" | "settings" | "brain" | "device" | "mesh" | "download">("explorer");
+  const [isInitializing, setIsInitializing] = useState(true);
   const [files, setFiles] = useState<FileEntry[]>([
     { id: "1", name: "index.js", content: "console.log('Welcome to Neur0n');", language: "javascript" },
     { id: "2", name: "styles.css", content: "body { background: #000; }", language: "css" },
   ]);
   const [activeFileId, setActiveFileId] = useState<string>("1");
-  const [consoleOutput, setConsoleOutput] = useState<string[]>(["[System] Neur0n Engine Initialized...", "[System] Precise Execution Mode: ON"]);
+  const [meshOutput, setMeshOutput] = useState<string[]>(["[System] Neur0n Engine Initialized...", "[System] Precise Execution Mode: ON"]);
+  const [executionOutput, setExecutionOutput] = useState<string[]>([]);
+  const [isExecutionWindowOpen, setIsExecutionWindowOpen] = useState(false);
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [isTeachingEnabled, setIsTeachingEnabled] = useState(true);
   const [geminiKey, setGeminiKey] = useState("");
@@ -95,53 +114,124 @@ export default function App() {
   const [aiChat, setAiChat] = useState<{ role: "user" | "ai"; message: string }[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
   const [chatInput, setChatInput] = useState("");
-  const [connectionLogs, setConnectionLogs] = useState<LogEntry[]>([]);
+  const [connectionLogs, setConnectionLogs] = useState<{timestamp: string, type: string, message: string, details?: string}[]>([]);
+  
+  // Device Management State
+  const [connectedDevices, setConnectedDevices] = useState<{id: string, name: string, type: 'Android' | 'iOS' | 'PC', status: 'Online' | 'Offline'}[]>([]);
+  const [isSideloading, setIsSideloading] = useState(false);
+  const [sideloadProgress, setSideloadProgress] = useState(0);
+  const [targetDevice, setTargetDevice] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<{id: string, message: string, type: 'info' | 'success' | 'warn'}[]>([]);
 
-  // Local Auth State (Firebase Disabled)
-  const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
+  // Detection logic for Electron environment
+  const isNative = typeof window !== 'undefined' && window.process && (window.process as any).type === 'renderer';
+
+  const addNotification = (message: string, type: 'info' | 'success' | 'warn' = 'info') => {
+    const id = Math.random().toString(36).substring(7);
+    setNotifications(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== id));
+    }, 4000);
+  };
+
+  const simulateDownload = (filename: string) => {
+    addNotification(`Initiating Secure Handshake for ${filename}...`, 'info');
+    setTimeout(() => {
+      // Small functional trick: Create a dummy blob to trigger browser download UI
+      const blob = new Blob(["Neur0n Desktop Binary Architecture Stub - This is a web-preview placeholder for native binary deployment verification."], { type: "application/octet-stream" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      addNotification(`Deployment Artifact Dispatched: ${filename}. NOTE: This is a preview stub.`, 'success');
+    }, 1500);
+  };
+
+  // Neural Vault State
+  const [vault, setVault] = useState<NeuralIdentity[]>([]);
+  const [isForging, setIsForging] = useState(false);
+  const [forgeData, setForgeData] = useState({ codename: "", role: "Architect", encryptionLevel: "AES-256" as any });
+
+  // Firebase Auth State
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [authLoading, setAuthLoading] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
-    // Simulated recovery of local session
-    const savedUser = localStorage.getItem('neur0n_user');
-    if (savedUser) {
-      setCurrentUser(JSON.parse(savedUser));
-    }
+    // Sync vault on mount
+    setVault(getVault());
+    
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setAuthLoading(false);
+      if (user) {
+        syncUserToFirestore(user);
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  const addLog = (type: LogEntry['type'], message: string, details?: string) => {
-    const newLog: LogEntry = {
+  const addLog = (type: string, message: string, details?: string) => {
+    const newLog = {
       timestamp: new Date().toISOString(),
       type,
       message,
       details
     };
     setConnectionLogs(prev => [newLog, ...prev]);
-    setConsoleOutput(prev => [...prev, `[${type}] ${message}`]);
+    setMeshOutput(prev => [...prev, `[${type}] ${message}`]);
   };
 
-  async function handleSocialLogin(provider: any) {
+  const handleForgeIdentity = () => {
+    if (!forgeData.codename.trim()) return;
+    
+    const newIdentity: NeuralIdentity = {
+      id: Math.random().toString(36).substr(2, 9),
+      codename: forgeData.codename,
+      role: forgeData.role,
+      encryptionLevel: forgeData.encryptionLevel,
+      signature: forgeSignature(),
+      createdAt: new Date().toISOString()
+    };
+    
+    saveIdentity(newIdentity);
+    setVault(getVault());
+    setIsForging(false);
+    setForgeData({ codename: "", role: "Architect", encryptionLevel: "AES-256" });
+    addLog('SYSTEM', `New Neural Signature forged: ${newIdentity.codename}`);
+  };
+
+  const selectIdentity = (identity: NeuralIdentity) => {
+    // This is a mock identity select, for actual auth we use GMail/GitHub
+    // But we'll allow it to set a "pseudo" local state if user wants to play with forge
+    console.log(`[Neur0n] Forge Identity Loaded: ${identity.codename}`);
+    addLog('SYSTEM', `Neural Identity Loaded via Vault: ${identity.codename} [${identity.role}]`);
+    setIsAuthModalOpen(false);
+  };
+
+  const handleSocialLogin = async (provider: any) => {
     try {
-      const mockUser: AppUser = {
-        uid: 'local_' + Math.random().toString(36).substr(2, 9),
-        email: 'architect@neur0n.local',
-        displayName: 'Neural Architect',
-        photoURL: null
-      };
-      setCurrentUser(mockUser);
-      localStorage.setItem('neur0n_user', JSON.stringify(mockUser));
-      addLog('SYSTEM', `Welcome, ${mockUser.displayName}. Local neural identity established.`);
+      const result = await signInWithPopup(auth, provider);
+      addLog('SYSTEM', `Welcome, ${result.user.displayName || 'Architect'}. Neural record synchronized.`);
       setIsAuthModalOpen(false);
     } catch (err) {
-      addLog('ERROR', `Handshake Failure: Local auth error.`);
+      console.error(err);
+      addLog('ERROR', `Handshake Failure: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   }
 
   async function handleLogout() {
-    setCurrentUser(null);
-    localStorage.removeItem('neur0n_user');
-    addLog('SYSTEM', "Local session terminated. Secure link severed.");
+    try {
+      await signOut(auth);
+      addLog('SYSTEM', "Neural link severed. Identity purged from active mesh.");
+    } catch (err) {
+      console.error(err);
+    }
   }
 
   // GitHub State
@@ -151,7 +241,48 @@ export default function App() {
   const [repoFiles, setRepoFiles] = useState<any[]>([]);
   const [isFetchingFiles, setIsFetchingFiles] = useState(false);
 
-  const [isConsoleWindowOpen, setIsConsoleWindowOpen] = useState(false);
+  const [terminalInput, setTerminalInput] = useState("");
+  const terminalRef = useRef<HTMLDivElement>(null);
+
+  const processCommand = (cmd: string) => {
+    const parts = cmd.trim().split(' ');
+    const base = parts[0].toLowerCase();
+    
+    setMeshOutput(prev => [...prev, `> ${cmd}`]);
+
+    switch(base) {
+      case 'mesh':
+        const action = parts[1];
+        if (action === 'link') {
+          setMeshOutput(prev => [...prev, "[Mesh] Initializing neural handshake...", "[Mesh] Searching for local nodes...", "[Mesh] Handshake Successful. Neural Link established."]);
+          setIsNeuralLinkEstablished(true);
+        } else if (action === 'status') {
+          setMeshOutput(prev => [...prev, `[Mesh] Identity: ${currentUser?.displayName || 'Architect'} | Encryption: AES-256 | Health: OPTIMAL | Link: ${isNeuralLinkEstablished ? 'CONNECTED' : 'STANDBY'}`]);
+        } else if (action === 'sync') {
+          setMeshOutput(prev => [...prev, "[Mesh] Synchronizing local cortex with global registry...", "[Mesh] Buffer: CLEAR", "[Mesh] Result: OK"]);
+        } else {
+          setMeshOutput(prev => [...prev, "[Mesh] Available actions: link, status, sync"]);
+        }
+        break;
+      case 'clear':
+        setMeshOutput([]);
+        break;
+      case 'help':
+        setMeshOutput(prev => [...prev, "Neural Protocols:", "- mesh [link|status|sync]", "- clear", "- run", "- sync"]);
+        break;
+      case 'run':
+        handleRun();
+        break;
+      default:
+        setMeshOutput(prev => [...prev, `[System] Unknown protocol: '${base}'. Frequency mismatch.`]);
+    }
+  };
+
+  useEffect(() => {
+    if (terminalRef.current) {
+      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+    }
+  }, [meshOutput, executionOutput]);
 
   const activeFile = files.find(f => f.id === activeFileId) || files[0];
 
@@ -214,12 +345,12 @@ export default function App() {
   }
 
   async function handleRun() {
-    setIsConsoleWindowOpen(true);
-    setConsoleOutput([`> Initializing Neur0n Runtime...`, `> Target: ${activeFile.name} (${activeFile.language})`]);
+    setIsExecutionWindowOpen(true);
+    setExecutionOutput([`> Initializing Neur0n Runtime...`, `> Target: ${activeFile.name} (${activeFile.language})`]);
     
     // 1. Browser-based execution for Web languages
     if (activeFile.language === "javascript" || activeFile.language === "typescript") {
-      setConsoleOutput(prev => [...prev, `[System] Using V8 Browser Engine...`]);
+      setExecutionOutput(prev => [...prev, `[System] Using V8 Browser Engine...`]);
       const originalLog = console.log;
       const logs: string[] = [];
       console.log = (...args) => logs.push(args.join(" "));
@@ -234,13 +365,14 @@ export default function App() {
         // eslint-disable-next-line no-eval
         eval(code);
         
-        setConsoleOutput(prev => [
+        const outLogs = logs.map(l => `[Out] ${l}`);
+        setExecutionOutput(prev => [
           ...prev, 
-          ...logs.map(l => `[Out] ${l}`), 
+          ...outLogs, 
           `[System] Process finished with exit code 0`
         ]);
       } catch (err) {
-        setConsoleOutput(prev => [
+        setExecutionOutput(prev => [
           ...prev, 
           `[Err] Runtime: ${err instanceof Error ? err.message : String(err)}`,
           `[System] Process finished with exit code 1`
@@ -253,7 +385,7 @@ export default function App() {
 
     // 2. Pyodide for Python (Local WASM)
     if (activeFile.language === "python") {
-      setConsoleOutput(prev => [...prev, `[System] Loading Pyodide Neural core...`]);
+      setExecutionOutput(prev => [...prev, `[System] Loading Pyodide Neural core...`]);
       try {
         // Load Pyodide from CDN if not present
         if (!(window as any).loadPyodide) {
@@ -276,13 +408,14 @@ export default function App() {
         await pyodide.runPythonAsync(activeFile.content);
         
         const lines = output.split("\n").filter(Boolean);
-        setConsoleOutput(prev => [
+        const outLines = lines.map(l => `[Out] ${l}`);
+        setExecutionOutput(prev => [
           ...prev, 
-          ...lines.map(l => `[Out] ${l}`), 
+          ...outLines, 
           `[System] Python VM finished successfully.`
         ]);
       } catch (err) {
-        setConsoleOutput(prev => [
+        setExecutionOutput(prev => [
           ...prev, 
           `[Err] Python Runtime: ${err instanceof Error ? err.message : String(err)}`
         ]);
@@ -299,12 +432,12 @@ export default function App() {
 
     const langId = langIds[activeFile.language];
     if (!langId) {
-      setConsoleOutput(prev => [...prev, `[System] No runner found for ${activeFile.language}.`]);
+      setExecutionOutput(prev => [...prev, `[System] No runner found for ${activeFile.language}.`]);
       return;
     }
 
     try {
-      setConsoleOutput(prev => [...prev, `[System] Dispatching to Judge0 Remote...`]);
+      setExecutionOutput(prev => [...prev, `[System] Dispatching to Judge0 Remote...`]);
       const response = await fetch("https://ce.judge0.com/submissions?base64_encoded=false&wait=true", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -322,13 +455,13 @@ export default function App() {
       if (data.stderr) output.push(...data.stderr.split("\n").map((l: string) => `[Err] ${l}`));
       if (data.compile_output) output.push(...data.compile_output.split("\n").map((l: string) => `[Err] ${l}`));
 
-      setConsoleOutput(prev => [
+      setExecutionOutput(prev => [
         ...prev, 
         ...output, 
         `[System] Remote process finished: ${data.status?.description || "Unknown"}`
       ]);
     } catch (err) {
-      setConsoleOutput(prev => [
+      setExecutionOutput(prev => [
         ...prev, 
         `[Err] Remote Failure: ${err instanceof Error ? err.message : String(err)}`
       ]);
@@ -337,10 +470,10 @@ export default function App() {
 
   function handleInstallApp() {
     if (!isAdminMode) {
-      setConsoleOutput(prev => [...prev, `[Error] Access Denied: Administrator privileges required to install apps.`]);
+      setMeshOutput(prev => [...prev, `[Error] Access Denied: Administrator privileges required to install apps.`]);
       return;
     }
-    setConsoleOutput(prev => [...prev, `[System] Installing package dependencies...`, `[System] Registry synchronized.`, `[System] Installation Complete.`]);
+    setMeshOutput(prev => [...prev, `[System] Installing package dependencies...`, `[System] Registry synchronized.`, `[System] Installation Complete.`]);
   }
 
   // GitHub Logic
@@ -352,7 +485,7 @@ export default function App() {
       const response = await octokit.request("GET /user/repos", { sort: "updated", per_page: 50 });
       setRepos(response.data);
     } catch (err) {
-      setConsoleOutput(prev => [...prev, `[Error] GitHub: ${err instanceof Error ? err.message : "Failed to fetch repositories"}`]);
+      setMeshOutput(prev => [...prev, `[Error] GitHub: ${err instanceof Error ? err.message : "Failed to fetch repositories"}`]);
     } finally {
       setIsFetchingRepos(false);
     }
@@ -367,7 +500,7 @@ export default function App() {
       setRepoFiles(response.data as any[]);
       setSelectedRepo(`${owner}/${repo}`);
     } catch (err) {
-      setConsoleOutput(prev => [...prev, `[Error] GitHub: ${err instanceof Error ? err.message : "Failed to fetch files"}`]);
+      setMeshOutput(prev => [...prev, `[Error] GitHub: ${err instanceof Error ? err.message : "Failed to fetch files"}`]);
     } finally {
       setIsFetchingFiles(false);
     }
@@ -386,9 +519,9 @@ export default function App() {
       };
       setFiles([...files, newFile]);
       setActiveFileId(newFile.id);
-      setConsoleOutput(prev => [...prev, `[System] Imported ${file.name} from GitHub.`]);
+      setMeshOutput(prev => [...prev, `[System] Imported ${file.name} from GitHub.`]);
     } catch (err) {
-      setConsoleOutput(prev => [...prev, `[Error] GitHub: Failed to download ${file.name}`]);
+      setMeshOutput(prev => [...prev, `[Error] GitHub: Failed to download ${file.name}`]);
     }
   }
 
@@ -403,24 +536,115 @@ export default function App() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    setConsoleOutput(prev => [...prev, `[System] Project state saved to local disk.`]);
+    setMeshOutput(prev => [...prev, `[System] Project state saved to local disk.`]);
     setIsPublishOpen(false);
   }
 
   return (
-    <div className="flex h-screen w-full bg-[#0c0c0e] text-zinc-300 font-sans overflow-hidden">
+    <div className="relative h-screen w-full bg-[#0c0c0e] text-zinc-300 font-sans overflow-hidden">
+      <AnimatePresence>
+        {isInitializing && (
+          <motion.div 
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0, scale: 1.1 }}
+            transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-[1000] bg-[#09090b] flex flex-col items-center justify-center"
+          >
+            <div className="relative">
+              {/* Outer Pulse */}
+              <motion.div 
+                animate={{ scale: [1, 1.4, 1], opacity: [0.1, 0.3, 0.1] }}
+                transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+                className="absolute inset-0 bg-blue-500/10 blur-3xl rounded-full"
+              />
+              {/* Organic Neuron Circle */}
+              <motion.div 
+                animate={{ 
+                  boxShadow: ["0 0 20px rgba(59,130,246,0.2)", "0 0 80px rgba(59,130,246,0.4)", "0 0 20px rgba(59,130,246,0.2)"],
+                  scale: [1, 1.05, 1]
+                }}
+                transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                className="relative w-32 h-32 rounded-full border border-blue-500/20 flex items-center justify-center bg-black/60 backdrop-blur-3xl overflow-hidden"
+              >
+                <div className="relative group">
+                  <Brain size={64} className="text-blue-500 cursor-none" />
+                  
+                  {/* Organic Synapse Flow */}
+                  <motion.div 
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+                    className="absolute inset-0 -m-8 opacity-20 pointer-events-none"
+                  >
+                    <svg viewBox="0 0 100 100" className="w-full h-full stroke-blue-500 stroke-[0.2] fill-none">
+                       {Array.from({ length: 8 }).map((_, i) => (
+                         <motion.path 
+                           key={i}
+                           d={`M50 50 Q${50 + Math.cos(i) * 40} ${50 + Math.sin(i) * 40} ${50 + Math.cos(i) * 80} ${50 + Math.sin(i) * 80}`} 
+                           initial={{ pathLength: 0 }}
+                           animate={{ pathLength: [0, 1, 0] }}
+                           transition={{ duration: 4 + i, repeat: Infinity, delay: i * 0.5 }}
+                         />
+                       ))}
+                    </svg>
+                  </motion.div>
+                </div>
+              </motion.div>
+            </div>
+
+            <motion.div 
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.5 }}
+              className="mt-12 text-center"
+            >
+              <h1 className="text-xl font-black uppercase tracking-[0.5em] text-white italic mb-2">Neur<span className="text-blue-500">0</span>n</h1>
+              <div className="flex items-center gap-2 justify-center">
+                 <div className="h-0.5 w-12 bg-white/10" />
+                 <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Architecting Neural Bridges</p>
+                 <div className="h-0.5 w-12 bg-white/10" />
+              </div>
+            </motion.div>
+
+            {/* Initialization Bars */}
+            <div className="absolute bottom-12 w-64 space-y-2">
+               <div className="flex justify-between text-[8px] font-black uppercase text-zinc-700 tracking-widest">
+                  <span>Initializing Core...</span>
+                  <motion.span 
+                    animate={{ opacity: [0, 1, 0] }}
+                    transition={{ duration: 1.5, repeat: Infinity }}
+                  >LINKING</motion.span>
+               </div>
+               <div className="h-0.5 w-full bg-zinc-900 rounded-full overflow-hidden">
+                  <motion.div 
+                    initial={{ x: "-100%" }}
+                    animate={{ x: "0%" }}
+                    transition={{ duration: 4, ease: "easeInOut" }}
+                    onAnimationComplete={() => setIsInitializing(false)}
+                    className="h-full w-full bg-gradient-to-r from-transparent via-blue-500 to-transparent"
+                  />
+               </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="flex h-screen w-full bg-[#0c0c0e] text-zinc-300 font-sans overflow-hidden">
+
       {/* --- Sidebar Nav --- */}
       <div className="w-16 flex flex-col items-center py-4 border-r border-zinc-800/50 bg-[#09090b]">
         <div className="mb-6 flex flex-col items-center">
-          <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20 mb-1.5">
+          <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-500/20 mb-1.5 focus:outline-none hover:scale-105 transition-transform" onClick={() => setIsManualOpen(true)}>
             <Sparkles className="text-white" size={24} />
           </div>
           <span className="text-[11px] font-black tracking-tighter text-zinc-100 uppercase">Neur0n</span>
-          <span className="text-[6px] font-medium text-zinc-500 tracking-widest uppercase opacity-80 -mt-0.5">powered by OWI</span>
+          <span className="text-[6px] font-medium text-zinc-500 tracking-widest uppercase opacity-80 -mt-0.5 text-center">powered by OWI</span>
         </div>
         {[
           { id: "explorer", icon: FileCode },
           { id: "github", icon: Github },
+          { id: "device", icon: Smartphone },
+          { id: "mesh", icon: Share2 },
+          { id: "download", icon: HardDrive },
           { id: "brain", icon: Brain },
           { id: "settings", icon: Settings },
         ].map((item) => (
@@ -478,453 +702,599 @@ export default function App() {
         </div>
       </div>
 
-      {/* --- Side Panels --- */}
+      {/* Panels */}
       <AnimatePresence mode="wait">
         <motion.div 
           key={activeTab}
           initial={{ opacity: 0, x: -10 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: -10 }}
-          className="w-72 bg-[#09090b] border-r border-zinc-800/50 flex flex-col overflow-hidden"
+          className="w-72 border-r border-zinc-900 bg-[#0c0c0e] overflow-hidden flex flex-col"
         >
-          {activeTab === "explorer" && (
-            <div className="flex-1 flex flex-col p-4">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Explorer</h2>
-                <div className="flex gap-2 items-center">
-                  <select 
-                    value={activeFile.language}
-                    onChange={(e) => {
-                      const newLang = e.target.value;
-                      setFiles(files.map(f => f.id === activeFileId ? { ...f, language: newLang } : f));
-                    }}
-                    className="appearance-none bg-[#09090b] btn-surface-gradient text-[10px] font-bold text-zinc-500 hover:text-blue-400 px-2 py-1 rounded-md border border-zinc-800 outline-none cursor-pointer transition-all"
-                  >
-                    <option value="python">Python</option>
-                    <option value="java">Java</option>
-                    <option value="c">C</option>
-                    <option value="cpp">C++</option>
-                    <option value="typescript">TypeScript</option>
-                    <option value="javascript">JavaScript</option>
-                  </select>
-                  <label className="cursor-pointer p-1.5 rounded-lg btn-surface-gradient text-zinc-500 hover:text-blue-400 transition-all">
-                    <Upload size={14} />
-                    <input type="file" className="hidden" onChange={handleImport} />
-                  </label>
-                  <button className="p-1.5 rounded-lg btn-surface-gradient text-zinc-500 hover:text-blue-400 transition-all">
-                    <Plus size={14} />
-                  </button>
-                </div>
-              </div>
+          <div className="h-14 border-b border-zinc-900 flex items-center justify-between px-6 shrink-0">
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 italic">
+              {activeTab}
+            </span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-4">
+            {activeTab === "explorer" && (
               <div className="space-y-1">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-[10px] font-bold uppercase tracking-widest text-zinc-600">Files</h2>
+                  <div className="flex gap-2">
+                    <label className="cursor-pointer p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-500 transition-all">
+                      <Upload size={14} />
+                      <input type="file" className="hidden" onChange={handleImport} />
+                    </label>
+                  </div>
+                </div>
                 {files.map(file => (
                   <button
                     key={file.id}
                     onClick={() => setActiveFileId(file.id)}
                     className={cn(
-                      "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 group",
-                      activeFileId === file.id 
-                        ? "bg-zinc-800/50 text-blue-400 border border-zinc-700/50" 
-                        : "text-zinc-400 hover:bg-zinc-800/30 hover:text-zinc-200"
+                      "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-bold transition-all group",
+                      activeFileId === file.id ? "bg-blue-500/10 text-blue-400" : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
                     )}
                   >
-                    <FileCode size={16} className={activeFileId === file.id ? "text-blue-400" : "text-zinc-600 group-hover:text-zinc-400"} />
-                    <span className="flex-1 text-left truncate">{file.name}</span>
+                    <FileCode size={14} className={activeFileId === file.id ? "text-blue-400" : "text-zinc-600 group-hover:text-zinc-400"} />
+                    <span className="truncate">{file.name}</span>
                   </button>
                 ))}
               </div>
+            )}
 
-              <div className="mt-auto pt-6 border-t border-zinc-800/50">
-                <div className="bg-gradient-to-br from-zinc-800/50 to-zinc-900/50 rounded-xl p-4 border border-zinc-700/30 relative overflow-hidden group">
-                  <div className="absolute -top-4 -right-4 w-16 h-16 bg-blue-500/10 rounded-full blur-2xl group-hover:bg-blue-500/20 transition-all duration-500" />
-                  <div className="flex items-center gap-2 mb-2">
-                    <Crown size={14} className="text-amber-400" />
-                    <span className="text-[10px] font-bold uppercase tracking-tighter text-amber-500/80">Premium License</span>
-                  </div>
-                  <p className="text-xs text-zinc-400 mb-3 leading-relaxed">
-                    Commercial use enabled for <span className="text-zinc-200 font-medium">Enterprise Tier</span>.
-                  </p>
-                  <span className="text-[10px] text-zinc-600 font-mono">ID: AUR-992-XPC</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "github" && (
-            <div className="flex-1 flex flex-col p-4">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500">GitHub Repos</h2>
-                <button 
-                  onClick={fetchRepos}
-                  disabled={!githubToken || isFetchingRepos}
-                  className="p-1.5 rounded-lg btn-surface-gradient text-zinc-500 hover:text-blue-400 disabled:opacity-30 transition-all"
-                >
-                  <RefreshCw size={16} className={isFetchingRepos ? "animate-spin" : ""} />
-                </button>
-              </div>
-
-              {!githubToken && (
-                <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
-                  <Github size={32} className="mb-4 text-zinc-700" />
-                  <p className="text-xs text-zinc-500 italic">Enter GitHub Personal Access Token in settings to load repositories.</p>
-                </div>
-              )}
-
-              {githubToken && !selectedRepo && (
-                <div className="flex-1 overflow-y-auto space-y-1 custom-scrollbar">
-                  {repos.map(repo => (
-                    <button
-                      key={repo.id}
-                      onClick={() => fetchRepoContent(repo.owner.login, repo.name)}
-                      className="w-full text-left p-3 rounded-lg bg-zinc-800/20 hover:bg-zinc-800/50 border border-zinc-800/50 transition-all group"
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-bold text-zinc-200 group-hover:text-blue-400 truncate">{repo.name}</span>
-                        <Unlock size={10} className="text-zinc-600" />
-                      </div>
-                      <div className="text-[10px] text-zinc-500 truncate">{repo.description || "No description"}</div>
-                    </button>
-                  ))}
-                  {repos.length === 0 && !isFetchingRepos && (
-                    <p className="text-[10px] text-zinc-600 text-center py-4 italic">No repositories found.</p>
-                  )}
-                </div>
-              )}
-
-              {selectedRepo && (
-                <div className="flex-1 flex flex-col">
-                  <button 
-                    onClick={() => setSelectedRepo(null)}
-                    className="flex items-center gap-2 text-[10px] text-zinc-500 hover:text-zinc-300 mb-4"
-                  >
-                    <ChevronRight size={12} className="rotate-180" />
-                    Back to Repos
+            {activeTab === "github" && (
+              <div className="space-y-4">
+                 <div className="flex items-center justify-between mb-2">
+                  <h2 className="text-[10px] font-bold uppercase tracking-widest text-zinc-600 font-mono">Repositories</h2>
+                  <button onClick={fetchRepos} className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-500 transition-all">
+                    <RefreshCw size={14} className={isFetchingRepos ? "animate-spin" : ""} />
                   </button>
-                  <div className="flex items-center gap-2 mb-4 p-2 bg-blue-500/5 border border-blue-500/10 rounded-lg">
-                    <FolderOpen size={14} className="text-blue-400" />
-                    <span className="text-xs font-bold text-zinc-300 truncate">{selectedRepo}</span>
-                  </div>
-                  <div className="flex-1 overflow-y-auto space-y-1 custom-scrollbar">
-                    {repoFiles.map(file => (
-                      <button
-                        key={file.sha}
-                        onClick={() => importGitHubFile(file)}
-                        disabled={file.type !== "file"}
-                        className={cn(
-                          "w-full flex items-center justify-between p-2 rounded-lg text-xs transition-all",
-                          file.type === "file" ? "hover:bg-zinc-800/50 text-zinc-400 hover:text-blue-400" : "opacity-30 cursor-default"
-                        )}
-                      >
-                        <div className="flex items-center gap-2 truncate">
-                          <FileCode size={14} />
-                          <span className="truncate">{file.name}</span>
-                        </div>
-                        {file.type === "file" && <Plus size={12} />}
+                </div>
+                {!githubToken ? (
+                  <p className="text-[10px] text-zinc-600 italic">Link GitHub in integrations to load repos.</p>
+                ) : !selectedRepo ? (
+                  <div className="space-y-2">
+                    {repos.map(repo => (
+                      <button key={repo.id} onClick={() => fetchRepoContent(repo.owner.login, repo.name)} className="w-full text-left p-3 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-blue-500/30 transition-all group">
+                        <div className="text-xs font-bold text-zinc-300 group-hover:text-blue-400 truncate">{repo.name}</div>
                       </button>
                     ))}
                   </div>
-                </div>
-              )}
-            </div>
-          )}
+                ) : (
+                  <div className="space-y-2">
+                    <button onClick={() => setSelectedRepo(null)} className="text-[10px] text-zinc-500 hover:text-zinc-300 mb-2 font-black uppercase tracking-widest">← Back</button>
+                    {repoFiles.map(file => (
+                      <button key={file.sha} onClick={() => importGitHubFile(file)} className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-zinc-800 text-[10px] text-zinc-400">
+                        <FileCode size={12} />
+                        <span className="truncate">{file.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
-          {activeTab === "settings" && (
-            <div className="flex-1 flex flex-col p-4">
-              <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-6">Environment Settings</h2>
-              
+            {activeTab === "settings" && (
               <div className="space-y-6">
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-3">Pedagogy Settings</label>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-600">Preferences</label>
                   <button 
                     onClick={() => setIsTeachingEnabled(!isTeachingEnabled)}
                     className={cn(
-                      "w-full flex items-center justify-between p-3 rounded-xl border transition-all duration-500 group",
-                      isTeachingEnabled 
-                        ? "bg-blue-500/10 border-blue-500/30 text-blue-400 shadow-lg shadow-blue-500/10" 
-                        : "btn-surface-gradient text-zinc-500 hover:border-zinc-600"
+                      "w-full flex items-center justify-between p-3 rounded-xl border transition-all",
+                      isTeachingEnabled ? "bg-blue-500/5 border-blue-500/20 text-blue-400" : "bg-zinc-900 border-zinc-800 text-zinc-500"
                     )}
                   >
-                    <div className="flex items-center gap-3">
-                      <Sparkles size={18} className={isTeachingEnabled ? "text-blue-400" : "text-zinc-600"} />
-                      <span className="text-xs font-medium">Educational Mode</span>
-                    </div>
-                    <div className={cn(
-                      "w-10 h-5 rounded-full relative transition-colors duration-300",
-                      isTeachingEnabled ? "bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.4)]" : "bg-zinc-700"
-                    )}>
-                      <div className={cn(
-                        "absolute top-1 w-3 h-3 bg-white rounded-full transition-all duration-300 shadow-sm",
-                        isTeachingEnabled ? "left-6" : "left-1"
-                      )} />
-                    </div>
+                    <span className="text-[10px] font-black uppercase">Teaching Mode</span>
+                    <Sparkles size={14} />
                   </button>
-                  <p className="text-[10px] text-zinc-600 mt-3 px-1 italic">When enabled, Neur0-L1nk will strictly explain concepts and logic while helping you "vibe code".</p>
-                </div>
-
-                <div className="h-[1px] bg-zinc-800/50" />
-
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-3">System Permissions</label>
-                  <button 
-                    onClick={() => setIsAdminMode(!isAdminMode)}
-                    className={cn(
-                      "w-full flex items-center justify-between p-3 rounded-xl border transition-all duration-500 group",
-                      isAdminMode 
-                        ? "bg-red-500/10 border-red-500/30 text-red-400 shadow-lg shadow-red-500/10" 
-                        : "btn-surface-gradient text-zinc-500 hover:border-zinc-600"
-                    )}
-                  >
-                    <div className="flex items-center gap-3">
-                      {isAdminMode ? <ShieldCheck size={18} /> : <Unlock size={18} />}
-                      <span className="text-xs font-medium">Run As Administrator</span>
-                    </div>
-                    <div className={cn(
-                      "w-10 h-5 rounded-full relative transition-colors duration-300",
-                      isAdminMode ? "bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.4)]" : "bg-zinc-700"
-                    )}>
-                      <div className={cn(
-                        "absolute top-1 w-3 h-3 bg-white rounded-full transition-all duration-300 shadow-sm",
-                        isAdminMode ? "left-6" : "left-1"
-                      )} />
-                    </div>
-                  </button>
-                  <p className="text-[10px] text-zinc-600 mt-3 px-1">Enables system-level installations and kernel access simulation.</p>
-                </div>
-                
-                <div className="h-[1px] bg-zinc-800/50" />
-                
-                <div className="bg-zinc-900/50 p-4 rounded-2xl border border-dashed border-zinc-800 text-center">
-                  <Zap size={24} className="mx-auto text-amber-500/50 mb-2" />
-                  <p className="text-[10px] text-zinc-500 italic">API Key management has moved to the Integrations vault (Lightning icon in sidebar).</p>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {activeTab === 'brain' && (
-            <div className="flex flex-col h-full animate-in fade-in slide-in-from-left-4 duration-300">
-              <div className="p-4 border-b border-zinc-800/80 bg-zinc-900/20 backdrop-blur-md">
-                <h3 className="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500 mb-1">Neural Analysis</h3>
-                <div className="flex items-center gap-2">
-                  <div className={`w-1.5 h-1.5 rounded-full ${isNeuralLinkEstablished ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-700'}`} />
-                  <span className="text-[9px] font-bold text-zinc-300 uppercase tracking-widest leading-none">
-                    {isNeuralLinkEstablished ? 'Mesh Connection Active' : 'Offline / Awaiting Link'}
-                  </span>
+
+
+            {activeTab === "device" && (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between mb-2">
+                  <h1 className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-600 font-mono italic">Bridge Protocol</h1>
+                  <div className="flex items-center gap-2">
+                    <span className={cn(
+                      "text-[8px] font-black uppercase px-2 py-0.5 rounded-full border",
+                      isNative ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500" : "bg-red-500/10 border-red-500/20 text-red-500"
+                    )}>
+                      {isNative ? "Native Linked" : "Web Sandbox"}
+                    </span>
+                  </div>
                 </div>
-              </div>
-              
-              <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-6">
-                {!currentUser ? (
-                  <div className="flex flex-col items-center justify-center h-64 text-center px-4">
-                    <Lock className="w-10 h-10 text-zinc-800 mb-4 opacity-20" />
-                    <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest leading-relaxed">
-                      RESTRICTED ACCESS: NEURAL IDENTITY REQUIRED
-                    </p>
-                    <button 
-                      onClick={() => setIsAuthModalOpen(true)}
-                      className="mt-6 text-[9px] font-black uppercase tracking-widest py-2 px-6 border border-purple-500/20 rounded-xl text-purple-400 hover:text-white hover:bg-purple-500/10 transition-all active:scale-95"
-                    >
-                      Authenticate Mesh
-                    </button>
-                  </div>
-                ) : !isNeuralLinkEstablished ? (
-                  <div className="flex flex-col items-center justify-center h-64 text-center px-4">
-                    <Brain className="w-10 h-10 text-zinc-800 mb-4 opacity-20" />
-                    <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest leading-relaxed">
-                      Establish a Neural Link to begin remote code analysis.
-                    </p>
-                    <button 
-                      onClick={() => setIsIntegrationGuideOpen(true)}
-                      className="mt-6 text-[9px] font-black uppercase tracking-widest py-2 px-6 border border-zinc-800 rounded-xl text-zinc-500 hover:text-white hover:border-zinc-700 transition-all active:scale-95"
-                    >
-                      Open Vault
-                    </button>
-                  </div>
-                ) : linkedAppInfo && (
-                  <>
-                    <section>
-                      <h4 className="text-[9px] font-black uppercase tracking-widest text-emerald-500/50 mb-3 flex items-center gap-2">
-                        <ShieldCheck size={12} /> Target Metadata
-                      </h4>
-                      <div className="space-y-2 bg-black/40 p-3 rounded-2xl border border-emerald-500/10">
-                        <div className="flex justify-between items-center">
-                          <span className="text-[9px] text-zinc-500 font-bold uppercase">Instance</span>
-                          <span className="text-[10px] text-zinc-300 font-mono">{linkedAppInfo.name}</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-[9px] text-zinc-500 font-bold uppercase">Health</span>
-                          <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">{linkedAppInfo.health}</span>
-                        </div>
-                        <div className="flex justify-between items-center pt-2 border-t border-zinc-800/50">
-                          <span className="text-[9px] text-zinc-500 font-bold uppercase">Latency</span>
-                          <span className="text-[10px] text-zinc-300 font-mono font-bold">12ms</span>
-                        </div>
-                      </div>
-                    </section>
 
-                    <section>
-                      <h4 className="text-[9px] font-black uppercase tracking-widest text-blue-500/50 mb-3 flex items-center gap-2">
-                        <FileCode size={12} /> Neural Topology
-                      </h4>
-                      <div className="space-y-1 pl-1">
-                        {linkedAppInfo.structure.map((item: any, idx: number) => (
-                          <div key={idx} className="group cursor-pointer">
-                            <div className="flex items-center gap-2 py-1 px-2 rounded-lg hover:bg-zinc-800/50 transition-colors">
-                              {item.type === 'dir' ? <Folder size={12} className="text-zinc-600" /> : <FileText size={12} className="text-zinc-500" />}
-                              <span className="text-[10px] text-zinc-400 group-hover:text-zinc-200 transition-colors">{item.name}</span>
-                            </div>
-                            {item.children && (
-                              <div className="ml-5 border-l border-zinc-800/50 space-y-1">
-                                {item.children.map((child: string, cIdx: number) => (
-                                  <div key={cIdx} className="flex items-center gap-2 py-1 px-3 hover:text-zinc-100 text-zinc-600 transition-colors cursor-pointer">
-                                    <div className="w-1 h-1 rounded-full bg-zinc-800" />
-                                    <span className="text-[9px] font-mono">{child}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
+                {!isNative && (
+                  <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-3xl mb-4">
+                    <div className="flex items-start gap-3">
+                      <ShieldAlert size={16} className="text-amber-500 shrink-0 mt-0.5" />
+                      <div className="space-y-1">
+                        <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest leading-none">Sandbox Restriction</p>
+                        <p className="text-[8px] text-zinc-500 leading-tight">
+                          The current environment is isolated. Sideloading APK/IPA requires the <span className="text-zinc-300">Desktop Binary</span> to interface with USB hardware.
+                        </p>
                       </div>
-                    </section>
-
-                    <section>
-                      <h4 className="text-[9px] font-black uppercase tracking-widest text-orange-500/50 mb-3 flex items-center gap-2">
-                        <Terminal size={12} /> Cortex Stream
-                      </h4>
-                      <div className="bg-black/60 rounded-2xl border border-zinc-800/50 p-3 h-48 overflow-y-auto custom-scrollbar space-y-3 font-mono">
-                        {linkedAppInfo.logs.map((log: any, idx: number) => (
-                          <div key={idx} className="flex flex-col gap-1 border-b border-zinc-900 pb-2 last:border-0">
-                            <div className="flex justify-between items-center">
-                              <span className={`text-[8px] font-black px-1 rounded ${
-                                log.type === 'ERROR' ? 'bg-red-500/20 text-red-500' : 
-                                log.type === 'WARN' ? 'bg-orange-500/20 text-orange-500' : 
-                                'bg-emerald-500/20 text-emerald-500'
-                              }`}>{log.type}</span>
-                              <span className="text-[8px] text-zinc-600 uppercase font-black">{log.time}</span>
-                            </div>
-                            <p className="text-[9px] text-zinc-400 break-words leading-tight">{log.msg}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </section>
-                  </>
+                    </div>
+                  </div>
                 )}
+
+                <div className="space-y-4">
+                  <div className={cn(
+                    "p-4 bg-zinc-900 border rounded-3xl transition-all",
+                    isNative ? "border-zinc-800 hover:border-blue-500/30" : "border-zinc-800/50 opacity-60 grayscale cursor-not-allowed"
+                  )}>
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-8 h-8 bg-blue-500/10 rounded-xl flex items-center justify-center">
+                        <Smartphone size={16} className="text-blue-500" />
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-black text-zinc-300 uppercase tracking-tighter italic">Hardware Bridge</div>
+                        <div className="text-[9px] text-zinc-600 font-bold uppercase tracking-tighter">Deploy Binary to Device</div>
+                      </div>
+                    </div>
+
+                    <label className={cn(
+                      "block w-full border-2 border-dashed border-zinc-800 rounded-2xl p-6 text-center transition-all",
+                      isNative ? "hover:bg-blue-500/5 hover:border-blue-500/20 cursor-pointer" : "cursor-not-allowed"
+                    )}>
+                      <Download size={24} className="mx-auto text-zinc-700 mb-2" />
+                      <span className="text-[9px] font-bold text-zinc-500 uppercase">Drop .apk / .ipa / .exe</span>
+                      <input 
+                        type="file" 
+                        disabled={!isNative}
+                        className="hidden" 
+                        accept=".apk,.ipa,.exe" 
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            addLog('DEVICE', `Imported deployment artifact: ${file.name}`);
+                            setTargetDevice('dev-1');
+                          }
+                        }} 
+                      />
+                    </label>
+                  </div>
+
+                  {targetDevice && (
+                    <div className="p-4 bg-black/40 border border-zinc-900 rounded-3xl animate-in fade-in slide-in-from-bottom-2">
+                      <div className="flex items-center justify-between mb-4">
+                         <div className="flex items-center gap-2">
+                            <Monitor size={12} className="text-blue-500" />
+                            <span className="text-[10px] font-bold text-zinc-400">Target: Local Neural Port</span>
+                         </div>
+                         <div className="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500 text-[8px] font-black uppercase italic">Handshake Ready</div>
+                      </div>
+
+                      {isSideloading ? (
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-[8px] font-black uppercase text-zinc-600 tracking-widest italic">
+                            <span>Sideloading Protocol...</span>
+                            <span>{sideloadProgress}%</span>
+                          </div>
+                          <div className="h-1.5 bg-zinc-900 rounded-full overflow-hidden">
+                            <motion.div 
+                              initial={{ width: 0 }}
+                              animate={{ width: `${sideloadProgress}%` }}
+                              className="h-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]"
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <button 
+                          onClick={() => {
+                            setIsSideloading(true);
+                            setSideloadProgress(0);
+                            const interval = setInterval(() => {
+                              setSideloadProgress(prev => {
+                                if (prev >= 100) {
+                                  clearInterval(interval);
+                                  setIsSideloading(false);
+                                  addLog('DEVICE', 'Module deployment successful.');
+                                  addNotification('Neural Bridge Success: Artifact deployed to target hardware.', 'success');
+                                  return 100;
+                                }
+                                return prev + 10;
+                              });
+                            }, 500);
+                          }}
+                          className="w-full py-3 bg-blue-600 text-white rounded-xl text-[9px] font-black uppercase tracking-[0.2em] hover:bg-blue-500 transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 italic"
+                        >
+                          <Zap size={10} />
+                          Initialize Deployment
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="pt-4 space-y-2">
+                     <div className="text-[8px] font-black text-zinc-700 uppercase tracking-[0.3em] px-1 italic">Protocol History</div>
+                     <div className="space-y-1">
+                        {connectionLogs.filter(l => l.type === 'DEVICE').length > 0 ? (
+                          connectionLogs.filter(l => l.type === 'DEVICE').slice(0, 3).map((log, idx) => (
+                             <div key={idx} className="p-2 bg-zinc-900/30 rounded-lg border border-zinc-900 text-[9px] text-zinc-500 flex items-center justify-between">
+                                <span className="truncate">{log.message}</span>
+                                <span className="text-[8px] opacity-30 font-mono">0x{Math.floor(Math.random()*1000).toString(16)}</span>
+                             </div>
+                          ))
+                        ) : (
+                          <div className="p-4 text-center border border-dashed border-zinc-900 rounded-2xl">
+                             <p className="text-[8px] text-zinc-700 font-bold uppercase tracking-widest">No Recent Hardware Activity</p>
+                          </div>
+                        )}
+                     </div>
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+
+            {activeTab === "download" && (
+              <div className="space-y-6">
+                <div className="flex flex-col items-center text-center p-6 bg-blue-500/5 rounded-3xl border border-blue-500/10 mb-6">
+                  <div className="relative mb-4">
+                    <motion.div 
+                      animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.6, 0.3] }}
+                      transition={{ duration: 4, repeat: Infinity }}
+                      className="absolute inset-0 bg-blue-500/20 blur-xl rounded-full"
+                    />
+                    <div className="relative w-16 h-16 bg-black rounded-2xl border border-blue-500/30 flex items-center justify-center">
+                      <Brain size={32} className="text-blue-500" />
+                    </div>
+                  </div>
+                  <h2 className="text-xs font-black uppercase tracking-[0.2em] text-zinc-200 italic mb-2">Native Engine Gateway</h2>
+                  <p className="text-[9px] text-zinc-500 uppercase font-bold leading-relaxed px-4">
+                    The native desktop environment enables hardware-level neural acceleration and <span className="text-blue-400">Total System Synchronization</span>. 
+                  </p>
+                </div>
+
+                <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-3xl mb-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Monitor size={14} className="text-blue-500" />
+                    <span className="text-[10px] font-black uppercase text-zinc-300 tracking-widest italic">Beginner's Deployment Guide</span>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex gap-3">
+                      <div className="w-5 h-5 rounded-lg bg-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-500 shrink-0">1</div>
+                      <div>
+                        <p className="text-[9px] font-black text-zinc-400 uppercase">Install Node.js</p>
+                        <p className="text-[8px] text-zinc-600 font-medium">Download from <span className="text-blue-500/70">nodejs.org</span>. This is the free engine that allows you to run professional Javascript tools on your PC.</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-3">
+                      <div className="w-5 h-5 rounded-lg bg-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-500 shrink-0">2</div>
+                      <div>
+                        <p className="text-[9px] font-black text-zinc-400 uppercase">Obtain Source Files</p>
+                        <p className="text-[8px] text-zinc-600 font-medium italic mb-2">Two options to get your code:</p>
+                        <div className="grid grid-cols-1 gap-2">
+                           <div className="p-2 bg-zinc-800/30 rounded-xl border border-zinc-700/30">
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <Github size={10} className="text-white" />
+                                <p className="text-[8px] text-zinc-300 font-black uppercase">GitHub Option</p>
+                              </div>
+                              <p className="text-[7px] text-zinc-500 leading-tight">Push your code via the <span className="text-zinc-400 italic">GitHub Tab</span> in this sidebar, then run <code className="text-blue-400/80">git clone</code> on your PC.</p>
+                           </div>
+                           <div className="p-2 bg-zinc-800/30 rounded-xl border border-zinc-700/30">
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <HardDrive size={10} className="text-zinc-500" />
+                                <p className="text-[8px] text-zinc-400 font-black uppercase">ZIP Option</p>
+                              </div>
+                              <p className="text-[7px] text-zinc-500 leading-tight">Find the <span className="text-zinc-400 italic">Settings/Gear</span> icon in the bottom-left AI Studio menu and click <span className="text-zinc-400 italic">"Export to ZIP"</span>.</p>
+                           </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex gap-3">
+                      <div className="w-5 h-5 rounded-lg bg-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-500 shrink-0">3</div>
+                      <div>
+                        <p className="text-[9px] font-black text-zinc-400 uppercase">Input Command</p>
+                        <p className="text-[8px] text-zinc-600 font-medium">Open a terminal index in that folder and type this exactly (it sets up everything automatically):</p>
+                        <div className="mt-1 p-2 bg-black rounded-lg border border-zinc-800 font-mono text-[8px] text-blue-400">
+                          npm install && npm run electron:dev
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <button 
+                    onClick={() => simulateDownload("neur0n_v1.0.4.exe")}
+                    className="w-full p-4 rounded-2xl bg-zinc-900 border border-zinc-800 hover:border-blue-500/50 transition-all group flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-zinc-800 flex items-center justify-center group-hover:bg-blue-500/20 transition-colors">
+                        <Monitor size={20} className="text-zinc-500 group-hover:text-blue-400" />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-[10px] font-black text-zinc-300 uppercase tracking-widest">Windows x64 (Blueprint)</div>
+                        <div className="text-[8px] text-zinc-600 font-mono uppercase">neur0n_stub_v1.0.4.exe</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[8px] font-black text-zinc-700 uppercase opacity-0 group-hover:opacity-100 transition-opacity">Deploy Local</span>
+                      <Download size={16} className="text-zinc-700 group-hover:text-blue-400" />
+                    </div>
+                  </button>
+
+                  <button 
+                    onClick={() => simulateDownload("neur0n_v1.0.4.dmg")}
+                    className="w-full p-4 rounded-2xl bg-zinc-900 border border-zinc-800 hover:border-purple-500/50 transition-all group flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-zinc-800 flex items-center justify-center group-hover:bg-purple-500/20 transition-colors">
+                        <HardDrive size={20} className="text-zinc-500 group-hover:text-purple-400" />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-[10px] font-black text-zinc-300 uppercase tracking-widest">macOS Silicon (Blueprint)</div>
+                        <div className="text-[8px] text-zinc-600 font-mono uppercase">neur0n_stub_v1.0.4.dmg</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[8px] font-black text-zinc-700 uppercase opacity-0 group-hover:opacity-100 transition-opacity">Deploy Local</span>
+                      <Download size={16} className="text-zinc-700 group-hover:text-purple-400" />
+                    </div>
+                  </button>
+                </div>
+
+                <div className="mt-8 space-y-4">
+                   <div className="text-[8px] font-black text-zinc-700 uppercase tracking-[0.3em] mb-1 italic px-1">Security Handshake Protocol</div>
+                   
+                   <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl">
+                      <div className="flex gap-3">
+                        <ShieldAlert size={16} className="text-amber-500 shrink-0 mt-0.5" />
+                        <div className="space-y-2">
+                          <p className="text-[10px] font-black text-zinc-300 uppercase tracking-widest">Execution Integrity Guide</p>
+                          <p className="text-[9px] text-zinc-500 leading-relaxed uppercase tracking-tighter">
+                            If you see "This app can't run on your PC", it is because browser-dispatched files are restricted.
+                          </p>
+                          <div className="flex flex-col gap-1 pt-1">
+                             <div className="flex items-center gap-2 text-[8px] font-bold text-zinc-400">
+                                <span className="w-4 h-4 rounded bg-zinc-800 flex items-center justify-center text-zinc-500 font-mono">STEP 01</span>
+                                <span>Get code via GitHub or Export ZIP</span>
+                             </div>
+                             <div className="flex items-center gap-2 text-[8px] font-bold text-zinc-400">
+                                <span className="w-4 h-4 rounded bg-zinc-800 flex items-center justify-center text-zinc-500 font-mono">STEP 02</span>
+                                <span>Run <code className="text-blue-400 lowercase">npm install && npm run electron:dev</code></span>
+                             </div>
+                          </div>
+                        </div>
+                      </div>
+                   </div>
+
+                   <div className="p-4 border border-zinc-900 rounded-3xl bg-zinc-900/20">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Github size={14} className="text-zinc-500" />
+                        <span className="text-[9px] font-black uppercase text-zinc-400 tracking-widest italic">Sharing & Distribution</span>
+                      </div>
+                      <p className="text-[8px] text-zinc-600 font-medium leading-tight mb-3">
+                        Yes! You can share your generated <span className="text-blue-500">.exe</span> on GitHub. Create a <span className="text-zinc-300">"Release"</span> in your repository and upload the binary as an asset for others to download.
+                      </p>
+                      <div className="flex items-center gap-2 text-[7px] font-bold text-zinc-500 bg-black/50 p-2 rounded-lg border border-zinc-800">
+                         <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                         <span>Verified Public Release Compatible</span>
+                      </div>
+                   </div>
+
+                   <div className="flex flex-col items-center gap-2 py-4 border-y border-zinc-900">
+                      <Brain size={24} className="text-zinc-800" />
+                      <p className="text-[8px] font-black text-zinc-700 uppercase tracking-[0.4em] italic">Non-Profit Neural Initiative</p>
+                      <p className="text-[8px] text-zinc-800 font-bold uppercase max-w-[200px] text-center leading-tight">
+                        Providing free hardware bridge access for growing minds and neural research.
+                      </p>
+                   </div>
+
+                   <div className="p-4 border border-zinc-900 rounded-2xl">
+                      <div className="text-[8px] font-black text-zinc-700 uppercase tracking-widest mb-3 italic">Technical Specs</div>
+                   <div className="space-y-2">
+                      <div className="flex justify-between text-[9px]">
+                        <span className="text-zinc-600">Runtime</span>
+                        <span className="text-zinc-400 font-mono">Chromium/Node</span>
+                      </div>
+                      <div className="flex justify-between text-[9px]">
+                        <span className="text-zinc-600">Encryption</span>
+                        <span className="text-zinc-400 font-mono">TLS 1.3 / AES</span>
+                      </div>
+                      <div className="flex justify-between text-[9px]">
+                        <span className="text-zinc-600">Status</span>
+                        <span className="text-emerald-500 font-bold uppercase tracking-tighter">Verified</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "mesh" && (
+              <div className="flex flex-col h-[calc(100vh-120px)]">
+                <div className="space-y-6 flex-shrink-0">
+                  <div className="relative w-24 h-24 mx-auto mb-4">
+                    <div className="absolute inset-0 border-2 border-zinc-800 rounded-full animate-spin-slow"></div>
+                    <div className="absolute inset-2 border border-blue-500/20 rounded-full"></div>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Share2 className="text-blue-500" size={24} />
+                    </div>
+                  </div>
+                  <h4 className="text-[10px] font-black text-zinc-200 uppercase tracking-widest text-center italic">Neural Topology</h4>
+                  <div className="space-y-2">
+                    <div className="p-3 bg-zinc-900/50 rounded-xl border border-zinc-800 group hover:border-blue-500/30 transition-all">
+                      <div className="text-[8px] font-black text-blue-400 uppercase tracking-tighter mb-1">Local Node</div>
+                      <div className="text-[10px] font-bold text-zinc-300">neur0n-worker-01</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-8 flex-1 flex flex-col min-h-0 border-t border-zinc-800 pt-6">
+                  <div className="flex items-center justify-between mb-3 px-1">
+                    <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest italic">Registry Terminal</h4>
+                    <button onClick={() => setMeshOutput([])} className="text-[8px] font-black text-zinc-700 hover:text-zinc-500 uppercase tracking-widest">Flush</button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-3 font-mono text-[9px] leading-relaxed custom-scrollbar bg-black/40 rounded-xl border border-zinc-900 mb-3" ref={terminalRef}>
+                    {meshOutput.length === 0 && (
+                      <div className="text-zinc-800 italic opacity-50">Monitoring frequency...</div>
+                    )}
+                    {meshOutput.map((line, i) => (
+                      <div key={i} className={cn(
+                        "mb-1",
+                        line.startsWith(">") ? "text-blue-400" : "text-zinc-500"
+                      )}>
+                        {line}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="h-8 flex items-center px-3 bg-black border border-zinc-800 rounded-lg shrink-0">
+                    <span className="text-blue-500 font-black text-[9px] mr-2 italic">»</span>
+                    <input 
+                      type="text" 
+                      className="flex-1 bg-transparent border-none outline-none text-[10px] font-mono text-zinc-200 placeholder:text-zinc-800"
+                      placeholder="Protocol..."
+                      value={terminalInput}
+                      onChange={(e) => setTerminalInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && terminalInput.trim()) {
+                          processCommand(terminalInput);
+                          setTerminalInput("");
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "brain" && (
+                <div className="space-y-6">
+                   {isNeuralLinkEstablished && linkedAppInfo && (
+                     <div className="space-y-6">
+                        <div className="bg-emerald-500/5 border border-emerald-500/10 p-4 rounded-3xl">
+                          <h4 className="text-[10px] font-black uppercase tracking-widest text-emerald-500 mb-3">Live Health</h4>
+                          <div className="flex items-center gap-3">
+                            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                            <span className="text-xs font-bold text-zinc-300 uppercase tracking-tighter">{linkedAppInfo.health}</span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                           <h4 className="text-[10px] font-black uppercase tracking-widest text-zinc-600">Recent Stream</h4>
+                           <div className="space-y-2">
+                             {linkedAppInfo.logs.slice(0, 3).map((log, idx) => (
+                               <div key={idx} className="p-3 bg-zinc-950 rounded-xl border border-zinc-900 font-mono text-[9px]">
+                                 <span className={cn("font-bold mr-2", log.type === 'ERROR' ? "text-red-500" : "text-blue-500")}>[{log.type}]</span>
+                                 <span className="text-zinc-400">{log.msg}</span>
+                               </div>
+                             ))}
+                           </div>
+                        </div>
+                     </div>
+                   )}
+                </div>
+            )}
+          </div>
         </motion.div>
       </AnimatePresence>
 
-      {/* --- Main Workspace --- */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Header */}
-        <div className="h-14 border-b border-zinc-800/50 bg-[#09090b] flex items-center justify-between px-6">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 bg-zinc-800/50 px-3 py-1.5 rounded-md border border-zinc-700/50">
-              <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]" />
-              <span className="text-xs font-mono text-zinc-400">{activeFile.name}</span>
-            </div>
-
-            {isNeuralLinkEstablished && (
-              <motion.div 
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="flex items-center gap-2 bg-purple-500/10 px-3 py-1.5 rounded-md border border-purple-500/20"
-              >
-                <div className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
-                <span className="text-[10px] font-black uppercase tracking-widest text-purple-400">Neural Guardian Active</span>
-              </motion.div>
-            )}
+      <div className="flex-1 flex flex-col bg-black relative min-w-0">
+        {/* Workspace Header */}
+        <div className="h-14 border-b border-zinc-900 flex items-center justify-between px-6 bg-[#0c0c0e]">
+          <div className="flex items-center gap-6">
+             <div className="flex items-center gap-2">
+                <FileCode size={16} className="text-blue-500" />
+                <span className="text-xs font-bold text-zinc-300 italic">{activeFile.name}</span>
+             </div>
+             {isNeuralLinkEstablished && (
+               <div className="flex items-center gap-2 bg-emerald-500/10 px-3 py-1 rounded-md border border-emerald-500/20">
+                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                 <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400">Neural Link Active</span>
+               </div>
+             )}
           </div>
-
+          
           <div className="flex items-center gap-3">
             <button 
               onClick={() => setIsAiOpen(!isAiOpen)}
               className={cn(
-                "group flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-lg",
+                "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all",
                 isAiOpen 
-                  ? "bg-amber-500 text-white shadow-amber-500/20" 
-                  : "btn-surface-gradient text-zinc-400 border-zinc-700/50 hover:text-amber-400"
+                  ? "bg-amber-500 text-white shadow-lg shadow-amber-500/20" 
+                  : "bg-gradient-to-r from-amber-600/80 to-amber-400/80 border border-amber-500/30 text-white hover:shadow-[0_0_20px_rgba(245,158,11,0.3)]"
               )}
             >
-              <Bot size={14} className={isAiOpen ? "animate-bounce" : ""} />
-              VIBE CHAT
-            </button>
-            <button 
-              onClick={() => setIsPublishOpen(true)}
-              className="group flex items-center gap-2 btn-success-gradient px-4 py-2 rounded-lg text-white text-xs font-bold transition-all active:scale-95 shadow-lg shadow-emerald-500/20"
-            >
-              <Share2 size={14} className="group-hover:rotate-12 transition-transform" />
-              PUBLISH
+              <Bot size={14} />
+              Neur0-L1nk
             </button>
             <button 
               onClick={() => setIsIntegrationGuideOpen(true)}
-              className="group flex items-center gap-2 btn-purple-gradient px-4 py-2 rounded-lg text-white text-xs font-bold transition-all active:scale-95 shadow-lg shadow-purple-500/20"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600/80 to-purple-400/80 border border-purple-500/30 text-xs font-black uppercase tracking-widest text-white hover:shadow-[0_0_20px_rgba(168,85,247,0.3)] transition-all"
             >
-              <Command size={14} className="group-hover:rotate-12 transition-transform" />
-              INTEGRATE
+              <Command size={14} />
+              Integrate
             </button>
             <button 
-              onClick={handleRun}
-              className="group flex items-center gap-2 btn-primary-gradient px-4 py-2 rounded-lg text-white text-xs font-bold transition-all active:scale-95"
+              onClick={() => setIsPublishOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600/80 to-emerald-400/80 border border-emerald-500/30 text-xs font-black uppercase tracking-widest text-white hover:shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all"
             >
-              <Play size={14} className="fill-current group-hover:scale-110 transition-transform" />
-              RUN SYSTEM
+              <Share2 size={14} />
+              Deploy
+            </button>
+            <button className="flex items-center gap-2 px-4 py-2 rounded-xl btn-primary-gradient text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-blue-500/20" onClick={handleRun}>
+              <Play size={14} fill="currentColor" />
+              Push
             </button>
           </div>
         </div>
 
-        {/* Editor Area */}
-        <div className="flex-1 relative flex flex-col overflow-hidden">
-          <div className="flex-1 relative">
-            <Editor
-              height="100%"
-              theme="vs-dark"
-              language={activeFile.language}
-              value={activeFile.content}
-              onChange={(val) => {
-                const updatedFiles = files.map(f => f.id === activeFileId ? { ...f, content: val || "" } : f);
-                setFiles(updatedFiles);
-              }}
-              options={{
-                minimap: { enabled: true },
-                fontSize: 14,
-                fontFamily: "'JetBrains Mono', monospace",
-                padding: { top: 20 },
-                smoothScrolling: true,
-                cursorBlinking: "expand",
-                cursorSmoothCaretAnimation: "on",
-                lineNumbers: "on",
-                renderLineHighlight: "all",
-                scrollbar: {
-                  vertical: "visible",
-                  horizontal: "visible",
-                  useShadows: false,
-                  verticalScrollbarSize: 10,
-                  horizontalScrollbarSize: 10,
-                },
-              }}
-              beforeMount={(monaco) => {
-                monaco.editor.defineTheme("aura-dark", {
-                  base: "vs-dark",
-                  inherit: true,
-                  rules: [],
-                  colors: {
-                    "editor.background": "#0c0c0e",
-                    "editor.lineHighlightBackground": "#18181b80",
-                    "editorCursor.foreground": "#3b82f6",
-                    "editor.selectionBackground": "#3b82f630",
-                  }
-                });
-              }}
-              onMount={(editor) => {
-                editor.updateOptions({ theme: "aura-dark" });
-              }}
-            />
-          </div>
+        <div className="flex-1 overflow-hidden relative">
+          <Editor
+            height="100%"
+            theme="vs-dark"
+            language={activeFile.language}
+            value={activeFile.content}
+            onChange={(val) => {
+              const updatedFiles = files.map(f => f.id === activeFileId ? { ...f, content: val || "" } : f);
+              setFiles(updatedFiles);
+            }}
+            options={{
+              minimap: { enabled: true },
+              fontSize: 14,
+              fontFamily: "'JetBrains Mono', monospace",
+              padding: { top: 20 },
+              smoothScrolling: true,
+              cursorBlinking: "expand",
+              cursorSmoothCaretAnimation: "on",
+              lineNumbers: "on",
+              renderLineHighlight: "all",
+              scrollbar: {
+                vertical: "visible",
+                horizontal: "visible",
+                useShadows: false,
+                verticalScrollbarSize: 10,
+                horizontalScrollbarSize: 10,
+              },
+            }}
+            beforeMount={(monaco) => {
+              monaco.editor.defineTheme("aura-dark", {
+                base: "vs-dark",
+                inherit: true,
+                rules: [],
+                colors: {
+                  "editor.background": "#0c0c0e",
+                  "editor.lineHighlightBackground": "#18181b80",
+                  "editorCursor.foreground": "#3b82f6",
+                  "editor.selectionBackground": "#3b82f630",
+                }
+              });
+            }}
+            onMount={(editor) => {
+              editor.updateOptions({ theme: "aura-dark" });
+            }}
+          />
 
-          {/* AI Drawer (Bottom) */}
+          {/* AI Drawer (Bottom Overlay) */}
           <AnimatePresence>
             {isAiOpen && (
               <motion.div
@@ -1023,68 +1393,87 @@ export default function App() {
         </div>
       </div>
 
-      {/* --- Console Window Window --- */}
+      {/* --- Unified Execution Window --- */}
       <AnimatePresence>
-        {isConsoleWindowOpen && (
+        {isExecutionWindowOpen && (
           <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-8 bg-black/60 backdrop-blur-sm pointer-events-none"
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            className="fixed bottom-12 right-12 w-[500px] h-80 bg-[#0c0c0e]/95 backdrop-blur-2xl border border-zinc-800 rounded-2xl shadow-2xl flex flex-col z-[100] overflow-hidden"
           >
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0, y: 100 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 100 }}
-              className="w-full max-w-2xl bg-[#070708] border border-zinc-700/50 rounded-2xl shadow-2xl pointer-events-auto flex flex-col overflow-hidden glass"
-            >
-              <div className="flex items-center justify-between px-4 py-2 bg-zinc-900/50 border-b border-zinc-800/50">
-                <div className="flex items-center gap-3">
-                  <button 
-                    onClick={() => setIsConsoleWindowOpen(false)}
-                    className="p-1.5 rounded-full bg-red-500/20 text-red-500 hover:bg-red-500 transition-all hover:text-white"
-                  >
-                    <X size={12} strokeWidth={3} />
-                  </button>
-                  <div className="flex items-center gap-2">
-                    <Terminal size={12} className="text-blue-400" />
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Execution Output</span>
-                  </div>
+            <div className="h-10 border-b border-zinc-900 flex items-center justify-between px-4 bg-zinc-900/30">
+              <div className="flex items-center gap-2">
+                <ShieldCheck size={14} className="text-emerald-500" />
+                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-300 italic">Cortex Sandbox Output</span>
+              </div>
+              <button 
+                onClick={() => setIsExecutionWindowOpen(false)} 
+                className="text-zinc-600 hover:text-white transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 font-mono text-[11px] leading-relaxed custom-scrollbar bg-black/20">
+              {executionOutput.map((line, i) => (
+                <div key={i} className={cn(
+                  "mb-1.5 font-medium",
+                  line.startsWith("[Err]") || line.startsWith("[System] Process finished with exit code 1") ? "text-red-400" : 
+                  line.startsWith("[Out]") ? "text-emerald-400" : 
+                  line.startsWith("[System]") ? "text-blue-400" :
+                  line.startsWith(">") ? "text-zinc-100 font-bold" :
+                  "text-zinc-500"
+                )}>
+                  {line}
                 </div>
-                <div className="text-[10px] text-zinc-600 font-mono">NEUR0N-CORE-v2.1.0</div>
-              </div>
-              <div className="flex-1 p-6 font-mono text-sm overflow-y-auto max-h-[60vh] custom-scrollbar space-y-2">
-                {consoleOutput.map((line, i) => (
-                  <div key={i} className={cn(
-                    "flex gap-4",
-                    line.startsWith("[Error]") || line.startsWith("[Err]") ? "text-red-400" : 
-                    line.startsWith("[System]") ? "text-blue-400" : 
-                    line.startsWith("[Out]") ? "text-emerald-400" : 
-                    line.startsWith(">") ? "text-amber-400" : 
-                    "text-zinc-200"
-                  )}>
-                    <span className="opacity-20 shrink-0 select-none">[{i+1}]</span>
-                    <span>{line}</span>
-                  </div>
-                ))}
-                {consoleOutput.length === 0 && <div className="text-zinc-600 italic opacity-50">Passive standby...</div>}
-              </div>
-              <div className="px-6 py-4 border-t border-zinc-800/50 bg-black/20 flex justify-between items-center">
-                <button 
-                  onClick={() => setConsoleOutput([])}
-                  className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 hover:text-zinc-300 transition-colors"
-                >
-                  Clear Buffer
-                </button>
-                <div className="flex items-center gap-2 text-[10px] text-zinc-600">
-                  <ShieldCheck size={10} />
-                  <span>Verified Output Stream</span>
-                </div>
-              </div>
-            </motion.div>
+              ))}
+              {executionOutput.length > 0 && <div className="mt-4 animate-pulse text-[10px] text-zinc-800">{">>>"} EOF</div>}
+            </div>
+            <div className="h-8 border-t border-zinc-900 bg-zinc-900/10 flex items-center px-4 justify-between">
+              <span className="text-[8px] font-black uppercase text-zinc-700">Protected Mode: V8-CORE</span>
+              <button 
+                onClick={() => setExecutionOutput([])}
+                className="text-[8px] font-black uppercase text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                Wipe Output
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* --- Global Notifications --- */}
+      <div className="fixed top-20 right-6 z-[200] flex flex-col gap-2 pointer-events-none">
+        <AnimatePresence>
+          {notifications.map((n) => (
+            <motion.div
+              key={n.id}
+              initial={{ opacity: 0, x: 20, scale: 0.95 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: 20, scale: 0.95 }}
+              className={cn(
+                "w-72 p-4 rounded-2xl border backdrop-blur-2xl shadow-2xl flex items-start gap-4 pointer-events-auto",
+                n.type === 'success' ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" :
+                n.type === 'warn' ? "bg-amber-500/10 border-amber-500/20 text-amber-400" :
+                "bg-blue-500/10 border-blue-500/20 text-blue-400"
+              )}
+            >
+              <div className="mt-0.5">
+                {n.type === 'success' ? <ShieldCheck size={16} /> : <Zap size={16} />}
+              </div>
+              <div className="flex-1">
+                <p className="text-[11px] font-bold leading-tight">{n.message}</p>
+              </div>
+              <button 
+                onClick={() => setNotifications(prev => prev.filter(item => item.id !== n.id))}
+                className="opacity-40 hover:opacity-100 transition-opacity"
+              >
+                <X size={14} />
+              </button>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
 
       {/* --- User Manual Modal --- */}
       <AnimatePresence>
@@ -1146,7 +1535,7 @@ export default function App() {
               <div className="space-y-3">
                 <button 
                   onClick={() => {
-                    setConsoleOutput(prev => [...prev, "[System] Initiating GitHub Transfer handshake..."]);
+                    setMeshOutput(prev => [...prev, "[System] Initiating GitHub Transfer handshake..."]);
                     setIsPublishOpen(false);
                     setActiveTab("github");
                   }}
@@ -1269,7 +1658,7 @@ export default function App() {
                         disabled={isFetchingRepos || !githubToken}
                         onClick={() => {
                           fetchRepos();
-                          setConsoleOutput(prev => [...prev, "[System] Establishing GitHub neural link..."]);
+                          setMeshOutput(prev => [...prev, "[System] Establishing GitHub neural link..."]);
                         }}
                         className="w-full py-4 rounded-2xl btn-purple-gradient text-white font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-purple-500/20 active:scale-[0.98] disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed"
                       >
@@ -1292,7 +1681,7 @@ export default function App() {
                         onClick={() => {
                           setSelectedRepo(null);
                           setRepoFiles([]);
-                          setConsoleOutput(prev => [...prev, "[System] GitHub session cleared."]);
+                          setMeshOutput(prev => [...prev, "[System] GitHub session cleared."]);
                         }}
                         className="text-[10px] font-bold text-red-400 hover:text-red-300 transition-colors uppercase"
                       >
@@ -1344,7 +1733,7 @@ export default function App() {
                                 if (tempGeminiKey) {
                                   setGeminiKey(tempGeminiKey);
                                   setIsGeminiLinking(false);
-                                  setConsoleOutput(prev => [...prev, "[System] Gemini Neural Core initialized."]);
+                                  setMeshOutput(prev => [...prev, "[System] Gemini Neural Core initialized."]);
                                 }
                               }
                             }}
@@ -1356,7 +1745,7 @@ export default function App() {
                               if (tempGeminiKey) {
                                 setGeminiKey(tempGeminiKey);
                                 setIsGeminiLinking(false);
-                                setConsoleOutput(prev => [...prev, "[System] Gemini Neural Core initialized."]);
+                                setMeshOutput(prev => [...prev, "[System] Gemini Neural Core initialized."]);
                               }
                             }}
                             className="flex-1 py-3 rounded-xl btn-purple-gradient text-white font-bold text-[10px] uppercase tracking-widest shadow-lg shadow-purple-500/20"
@@ -1385,7 +1774,7 @@ export default function App() {
                           onClick={() => {
                             setGeminiKey("");
                             setTempGeminiKey("");
-                            setConsoleOutput(prev => [...prev, "[System] Gemini Neural core offline."]);
+                            setMeshOutput(prev => [...prev, "[System] Gemini Neural core offline."]);
                           }}
                           className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-red-500 hover:text-red-400 transition-colors uppercase"
                         >
@@ -1494,7 +1883,7 @@ export default function App() {
                         <button 
                           onClick={() => {
                             if (githubToken) {
-                              setConsoleOutput(prev => [...prev, `[Neur0n] Token encrypted: ${'*'.repeat(githubToken.length)}`]);
+                              setMeshOutput(prev => [...prev, `[Neur0n] Token encrypted: ${'*'.repeat(githubToken.length)}`]);
                             }
                           }}
                           className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-[10px] font-bold text-zinc-300 rounded-xl transition-colors uppercase tracking-widest"
@@ -1517,13 +1906,9 @@ export default function App() {
                           )}
                         </div>
                         {connectionLogs.length > 0 && (
-                          <button 
-                            onClick={() => exportLogsToExcel(connectionLogs)}
-                            className="text-[9px] font-black text-emerald-500 hover:text-emerald-400 flex items-center gap-1 transition-colors uppercase tracking-widest border border-emerald-500/20 px-2 py-0.5 rounded-md hover:bg-emerald-500/5"
-                          >
-                            <FileDown size={10} />
-                            Export XL
-                          </button>
+                          <div className="text-[9px] font-black text-emerald-500/50 uppercase tracking-widest border border-emerald-500/10 px-2 py-0.5 rounded-md">
+                            Logs Stream Active
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1699,59 +2084,135 @@ export default function App() {
                 <X size={20} />
               </button>
 
-              <div className="text-center mb-10">
-                <div className="w-16 h-16 bg-blue-600 rounded-2xl mx-auto flex items-center justify-center shadow-2xl shadow-blue-500/20 mb-6 rotate-3 hover:rotate-0 transition-transform duration-500">
-                  <UserIcon className="text-white" size={32} />
+              <div className="text-center mb-6">
+                <div className="w-14 h-14 bg-blue-600 rounded-2xl mx-auto flex items-center justify-center shadow-2xl shadow-blue-500/20 mb-4 rotate-3 hover:rotate-0 transition-transform duration-500">
+                  <UserIcon className="text-white" size={28} />
                 </div>
-                <h3 className="text-2xl font-black italic tracking-tighter text-zinc-100 uppercase mb-2">Neural Identity</h3>
-                <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest opacity-60">Authorize Mesh Access</p>
+                <h3 className="text-xl font-black italic tracking-tighter text-zinc-100 uppercase">Neural Vault</h3>
+                <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest opacity-60">
+                  {isForging ? 'Forge New Signature' : 'Authorize Identity'}
+                </p>
               </div>
 
-              <div className="space-y-4">
-                <button 
-                  onClick={() => handleSocialLogin(googleProvider)}
-                  className="w-full group flex items-center gap-4 p-4 rounded-2xl bg-white/5 border border-zinc-800 hover:border-blue-500/50 hover:bg-blue-500/5 transition-all text-left"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center group-hover:text-blue-400 transition-colors">
-                    <Mail size={20} />
+              {!isForging ? (
+                <div className="space-y-4">
+                  <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-2 pr-1">
+                    {vault.map(identity => (
+                      <button 
+                        key={identity.id}
+                        onClick={() => selectIdentity(identity)}
+                        className="w-full group flex items-center justify-between p-3 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-blue-500/50 hover:bg-blue-500/5 transition-all text-left"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center group-hover:text-blue-400 transition-colors">
+                            <ShieldCheck size={14} />
+                          </div>
+                          <div>
+                            <div className="text-xs font-bold text-zinc-200">{identity.codename}</div>
+                            <div className="text-[9px] text-zinc-500 uppercase tracking-widest font-black">{identity.role}</div>
+                          </div>
+                        </div>
+                        <div className="text-[8px] font-mono text-zinc-700 group-hover:text-zinc-500 transition-colors">
+                          {identity.signature.split('-')[1].substring(0, 4)}...
+                        </div>
+                      </button>
+                    ))}
+                    {vault.length === 0 && (
+                      <div className="text-center py-8 bg-zinc-900/50 rounded-2xl border border-dashed border-zinc-800">
+                        <Lock className="w-6 h-6 text-zinc-800 mx-auto mb-2" />
+                        <p className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest">Vault Empty</p>
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <div className="text-sm font-bold text-zinc-200">Google / GMail</div>
-                    <div className="text-[9px] text-zinc-500 uppercase tracking-widest font-black">Secure Handshake</div>
-                  </div>
-                </button>
 
-                <button 
-                  onClick={() => handleSocialLogin(githubProvider)}
-                  className="w-full group flex items-center gap-4 p-4 rounded-2xl bg-white/5 border border-zinc-800 hover:border-purple-500/50 hover:bg-purple-500/5 transition-all text-left"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center group-hover:text-purple-400 transition-colors">
-                    <Github size={20} />
-                  </div>
-                  <div>
-                    <div className="text-sm font-bold text-zinc-200">GitHub Identity</div>
-                    <div className="text-[9px] text-zinc-500 uppercase tracking-widest font-black">Mesh Verified</div>
-                  </div>
-                </button>
+                  <button 
+                    onClick={() => setIsForging(true)}
+                    className="w-full py-3 rounded-xl border border-dashed border-zinc-700 text-[10px] font-black uppercase text-zinc-500 hover:text-white hover:border-blue-500/50 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Plus size={14} />
+                    Forge New Identity
+                  </button>
 
-                <div className="relative py-4">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-zinc-800/50"></div>
-                  </div>
-                  <div className="relative flex justify-center text-[8px] uppercase font-black tracking-widest text-zinc-600 bg-[#0c0c0e] px-2">
-                    Alternative Protocols
+                  <div className="text-center">
+                    <p className="text-[8px] uppercase font-black tracking-widest text-zinc-600 mb-3">Remote Auth</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button 
+                        onClick={() => handleSocialLogin(googleProvider)}
+                        className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-[9px] font-black uppercase text-zinc-400 hover:text-white hover:border-blue-500/50 transition-all"
+                      >
+                        GMail
+                      </button>
+                      <button 
+                        onClick={() => handleSocialLogin(githubProvider)}
+                        className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-[9px] font-black uppercase text-zinc-400 hover:text-white hover:border-purple-500/50 transition-all"
+                      >
+                        GitHub
+                      </button>
+                    </div>
                   </div>
                 </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 ml-1">Codename</label>
+                    <input 
+                      autoFocus
+                      type="text"
+                      placeholder="e.g. Neo, Ghost, Zero"
+                      value={forgeData.codename}
+                      onChange={e => setForgeData({...forgeData, codename: e.target.value})}
+                      className="w-full bg-black border border-zinc-800 rounded-xl py-2 px-4 text-xs focus:ring-1 focus:ring-blue-500/50 outline-none transition-all placeholder:text-zinc-800 text-white"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 ml-1">Role</label>
+                    <select 
+                      value={forgeData.role}
+                      onChange={e => setForgeData({...forgeData, role: e.target.value})}
+                      className="w-full bg-black border border-zinc-800 rounded-xl py-2 px-4 text-xs focus:ring-1 focus:ring-blue-500/50 outline-none transition-all text-white appearance-none"
+                    >
+                      <option>Architect</option>
+                      <option>Penetrator</option>
+                      <option>Mesh Worker</option>
+                      <option>Neural Guardian</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 ml-1">Encryption</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {['Standard', 'AES-256', 'Quantum'].map(level => (
+                        <button 
+                          key={level}
+                          onClick={() => setForgeData({...forgeData, encryptionLevel: level as any})}
+                          className={cn(
+                            "py-2 rounded-lg text-[8px] font-black uppercase tracking-tighter transition-all border",
+                            forgeData.encryptionLevel === level 
+                              ? "bg-blue-500/10 border-blue-500/50 text-blue-400" 
+                              : "bg-zinc-900 border-zinc-800 text-zinc-500"
+                          )}
+                        >
+                          {level}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <button className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-[9px] font-black uppercase text-zinc-500 hover:text-zinc-200 transition-all opacity-50 cursor-not-allowed">
-                    Proton-Link
-                  </button>
-                  <button className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-[9px] font-black uppercase text-zinc-500 hover:text-zinc-200 transition-all opacity-50 cursor-not-allowed">
-                    Secure-Key
-                  </button>
+                  <div className="pt-4 flex gap-2">
+                    <button 
+                      onClick={handleForgeIdentity}
+                      className="flex-1 py-3 rounded-xl btn-primary-gradient text-white font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-blue-500/20 active:scale-95 transition-all"
+                    >
+                      Forge Signature
+                    </button>
+                    <button 
+                      onClick={() => setIsForging(false)}
+                      className="px-4 py-3 rounded-xl bg-zinc-800 text-zinc-400 font-bold text-[10px] uppercase tracking-widest hover:text-white transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="mt-10 flex flex-col items-center gap-3">
                 <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
@@ -1778,5 +2239,6 @@ export default function App() {
         .prose-xs { font-size: 0.75rem; line-height: 1.4; }
       `}</style>
     </div>
+  </div>
   );
 }

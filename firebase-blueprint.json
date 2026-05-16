@@ -1,0 +1,37 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Neur0n Platform User",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "lastLogin": { "type": "string", "format": "date-time" },
+        "provider": { "type": "string" }
+      },
+      "required": ["uid", "email"]
+    },
+    "HealthCheck": {
+      "title": "Health Check",
+      "description": "Firestore connectivity verification",
+      "type": "object",
+      "properties": {
+        "status": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/_health_check_/{id}": {
+      "schema": "HealthCheck",
+      "description": "System health verify"
+    }
+  }
+}
