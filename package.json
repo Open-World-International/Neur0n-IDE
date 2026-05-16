@@ -19,6 +19,7 @@
   "build": {
     "appId": "com.neur0n.app",
     "productName": "Neur0n",
+    "compression": "normal",
     "directories": {
       "output": "dist_electron"
     },
@@ -28,7 +29,15 @@
       "package.json"
     ],
     "win": {
-      "target": "portable"
+      "target": [
+        "portable",
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false
     },
     "mac": {
       "target": "dmg"

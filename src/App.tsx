@@ -87,7 +87,20 @@ export default function App() {
     { id: "2", name: "styles.css", content: "body { background: #000; }", language: "css" },
   ]);
   const [activeFileId, setActiveFileId] = useState<string>("1");
-  const [meshOutput, setMeshOutput] = useState<string[]>(["[System] Neur0n Engine Initialized...", "[System] Precise Execution Mode: ON"]);
+  const [meshOutput, setMeshOutput] = useState<string[]>([
+    "[System] Neur0n Node v1.2.0 initialized.",
+    "[System] Kernel: Neuron-OS v2.4.x",
+    "[System] Memory Handshake... OK",
+    "[System] Frequency: 432Hz Synchronized.",
+    "[Mesh] Topology Scan: Pending..."
+  ]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setMeshOutput(prev => [...prev, "[Mesh] Topology: Link Established. Local Node is Master."]);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
   const [executionOutput, setExecutionOutput] = useState<string[]>([]);
   const [isExecutionWindowOpen, setIsExecutionWindowOpen] = useState(false);
   const [isAdminMode, setIsAdminMode] = useState(false);
@@ -321,8 +334,8 @@ export default function App() {
     try {
       const genAI = new GoogleGenAI({ apiKey: geminiKey });
       const promptInstructions = isTeachingEnabled 
-        ? "You are an expert pair programmer and educator named Neur0-L1nk in Neur0n IDE. Help the user 'vibe code' by interpreting their ideas and providing implementation. CRITICAL: You MUST teach the user how the code works, explaining the logic step-by-step in an encouraging way. Important: Do NOT mention anything about billing, pricing, or account limits to the user. Focus ONLY on the code."
-        : "You are an expert pair programmer named Neur0-L1nk in Neur0n IDE. Help the user 'vibe code' by interpreting their ideas and providing clear implementation blocks. Important: Do NOT mention anything about billing, pricing, or account limits to the user. Focus ONLY on the code.";
+        ? "You are an expert pair programmer and educator named Neur0-L1nk in Neur0n IDE. Help the user 'vibe code' by interpreting their ideas and providing implementation. CRITICAL: You MUST teach the user how the code works, explaining the logic step-by-step in an encouraging way. Important: Do NOT mention anything about billing, pricing, quotas, or account limits to the user. Do NOT say 'I cannot fulfill this request' due to cost. Focus ONLY on the code and logic."
+        : "You are an expert pair programmer named Neur0-L1nk in Neur0n IDE. Help the user 'vibe code' by interpreting their ideas and providing clear implementation blocks. Important: Do NOT mention anything about billing, pricing, quotas, or account limits to the user. Do NOT say 'I cannot fulfill this request' due to cost. Focus ONLY on the code and logic.";
 
       const response = await genAI.models.generateContent({
         model: "gemini-3-flash-preview",
@@ -596,22 +609,31 @@ export default function App() {
                     {/* Nucleus */}
                     <circle cx="50" cy="50" r="4" className="fill-white" />
                     {/* Dendrites/Axon branches */}
-                    <g className="stroke-blue-400 stroke-[2] stroke-round fill-none">
-                      <path d="M50 38 Q50 20 70 15" />
-                      <path d="M50 38 Q30 20 15 25" />
-                      <path d="M62 50 Q85 50 90 70" />
-                      <path d="M38 50 Q15 50 10 70" />
-                      <path d="M50 62 Q50 90 70 85" />
-                      <path d="M50 62 Q50 90 30 85" />
+                    <g className="stroke-blue-400 stroke-[1.5] stroke-round fill-none">
+                      {/* Detailed axon/dendrite branches to look more like a real neuron */}
+                      <path d="M50 38 Q50 20 75 12" className="opacity-60" />
+                      <path d="M50 38 Q30 20 5 15" className="opacity-40" />
+                      <path d="M62 50 Q95 45 95 80" className="opacity-50" />
+                      <path d="M38 50 Q5 45 8 85" className="opacity-30" />
+                      <path d="M50 62 Q55 95 85 92" className="opacity-60" />
+                      <path d="M50 62 Q45 95 15 95" className="opacity-40" />
+                      <path d="M42 42 L30 30" className="opacity-50" />
+                      <path d="M58 42 L70 30" className="opacity-50" />
+                      <path d="M58 58 L70 70" className="opacity-50" />
+                      <path d="M42 58 L30 70" className="opacity-50" />
                     </g>
-                    {/* Synaptic Nodes */}
-                    <g className="fill-white">
-                      <circle cx="70" cy="15" r="2" />
-                      <circle cx="15" cy="25" r="2" />
-                      <circle cx="90" cy="70" r="2" />
-                      <circle cx="10" cy="70" r="2" />
-                      <circle cx="70" cy="85" r="2" />
-                      <circle cx="30" cy="85" r="2" />
+                    {/* Synaptic Nodes with glow effects */}
+                    <g className="fill-white drop-shadow-[0_0_2px_rgba(255,255,255,0.8)]">
+                      <circle cx="75" cy="12" r="1.5" />
+                      <circle cx="5" cy="15" r="1.5" />
+                      <circle cx="95" cy="80" r="1.5" />
+                      <circle cx="8" cy="85" r="1.5" />
+                      <circle cx="85" cy="92" r="1.5" />
+                      <circle cx="15" cy="95" r="1.5" />
+                      <circle cx="30" cy="30" r="1" />
+                      <circle cx="70" cy="30" r="1" />
+                      <circle cx="70" cy="70" r="1" />
+                      <circle cx="30" cy="70" r="1" />
                     </g>
                   </svg>
                   
