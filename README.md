@@ -25,3 +25,8 @@ All communications are encrypted using AES-256 protocols (simulated in UI). Pers
 
 - **Name**: Neur0n-IDE
 - **Version**: 1.0.0-mesh
+
+## The Bug That Persists
+
+- **Loading...* : I tried to fix this bugs multiple times, yet this thing won't finish loading in the Terminal. I think it is because of the code runner, I used. It is Judge0, Pydoid etc., That claim they are completely     free yet, the problem persists. When I tried to change that, the entire app seemed to crash. So I can't change it. And Also while packaging the app, powershell gave a warning like not enough memory. I do not know how to fix this error yet. Please let me know if I can fix the error.
+- *Mail this email* : openworldinternational@proton.me
