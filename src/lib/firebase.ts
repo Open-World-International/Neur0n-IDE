@@ -5,10 +5,13 @@ import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 
-// Use initializeFirestore with experimentalForceLongPolling to bypass potential WebSocket blocks in iframe
-export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
-}, firebaseConfig.firestoreDatabaseId);
+// Use initializeFirestore with settings balanced for both web preview and native execution
+const firestoreSettings = {
+  experimentalAutoDetectLongPolling: true, // Smarter than forcing it
+  ignoreUndefinedProperties: true,
+};
+
+export const db = initializeFirestore(app, firestoreSettings, firebaseConfig.firestoreDatabaseId);
 
 export const auth = getAuth(app);
 
@@ -37,6 +40,11 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   };
   console.error('[Neur0n] Firestore Identity Sync Failure:', errInfo);
+  // Do not throw in production if it's a connectivity issue to avoid crashing the UI
+  if (errInfo.error.includes('Could not reach Cloud Firestore backend')) {
+     console.warn('[Neur0n] Mesh is in OFFLINE mode.');
+     return;
+  }
   throw new Error(JSON.stringify(errInfo));
 }
 
@@ -62,10 +70,15 @@ async function testConnection() {
   console.log("Initiating Neur0n Mesh Handshake (Firestore Test)...");
   try {
     const testDoc = doc(db, '_health_check_', 'connection');
+    // Using getDocFromServer as per integration guidelines to verify real connection
     await getDocFromServer(testDoc);
     console.log("Neur0n Mesh Connection: STABLE.");
-  } catch (error) {
-    console.warn("Neur0n Mesh Connection: OFFLINE / BLOCKED. Check network firewall.");
+  } catch (error: any) {
+    if (error?.message?.includes('Could not reach Cloud Firestore backend')) {
+      console.error("CRITICAL: Neur0n Mesh could not reach the backend. Check internet or proxy settings.");
+    } else {
+      console.warn("Neur0n Mesh Connection: OFFLINE / Restricted Access.");
+    }
   }
 }
 testConnection();
