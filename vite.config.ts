@@ -10,7 +10,7 @@ export default defineConfig(({mode}) => {
     plugins: [
       react(),
       tailwindcss(),
-      monacoEditorPlugin({
+      (monacoEditorPlugin as any).default({
         languageWorkers: ['editorWorkerService', 'css', 'html', 'json', 'typescript'],
       }),
     ],
