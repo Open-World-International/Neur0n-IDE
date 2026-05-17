@@ -13,7 +13,7 @@
     "lint": "tsc --noEmit",
     "dev:native": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && npm run electron:dev\"",
     "electron:dev": "electron electron/main.cjs",
-    "electron:build": "vite build && electron-builder"
+    "electron:build": "cross-env NODE_OPTIONS=--max-old-space-size=4096 vite build && electron-builder"
   },
   "main": "electron/main.cjs",
   "build": {
@@ -67,6 +67,7 @@
     "@vitejs/plugin-react": "^5.0.4",
     "autoprefixer": "^10.4.21",
     "concurrently": "^9.2.1",
+    "cross-env": "^7.0.3",
     "electron": "^42.1.0",
     "electron-builder": "^26.8.1",
     "esbuild": "^0.25.0",
