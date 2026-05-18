@@ -1,8 +1,10 @@
+
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import monacoEditorPlugin from 'vite-plugin-monaco-editor';
+import { pyodide } from 'vite-plugin-pyodide';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
@@ -12,6 +14,10 @@ export default defineConfig(({mode}) => {
       tailwindcss(),
       (monacoEditorPlugin as any).default({
         languageWorkers: ['editorWorkerService', 'css', 'html', 'json', 'typescript'],
+      }),
+      pyodide({
+        // Target the latest Pyodide version
+        pyodideVersion: 'v0.23.4',
       }),
     ],
     base: './',
